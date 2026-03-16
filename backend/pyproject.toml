@@ -1,0 +1,23 @@
+[project]
+name = "lecturelens-backend"
+version = "0.1.0"
+description = "LectureLens FastAPI scaffold"
+requires-python = ">=3.10"
+dependencies = [
+  "email-validator>=2.0.0",
+  "fastapi>=0.110.0",
+  "faster-whisper>=1.0.0",
+  "bcrypt<4.0.0",
+  "numpy>=1.26.0",
+  "passlib[bcrypt]>=1.7.4",
+  "python-jose[cryptography]>=3.3.0",
+  "python-dotenv>=1.0.1",
+  "silero-vad>=5.1.0",
+  "torch>=2.1.0",
+  "uvicorn[standard]>=0.27.0",
+  "pydantic>=2.5.0"
+]
+
+[build-system]
+requires = ["setuptools>=65.5"]
+build-backend = "setuptools.build_meta"
