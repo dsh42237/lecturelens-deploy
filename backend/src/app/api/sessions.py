@@ -26,14 +26,15 @@ def parse_live_notes_history(raw: str | None) -> list[dict[str, Any]]:
 def list_sessions(user=Depends(get_current_user)) -> list[SessionOut]:
     with get_db() as conn:
         cur = conn.cursor()
-        rows = cur.execute(
+        cur.execute(
             "SELECT s.id, s.course_id, s.started_at, s.ended_at, s.final_notes_text, s.live_notes_history, "
             "c.course_code, c.course_name "
             "FROM sessions s "
             "LEFT JOIN courses c ON s.course_id = c.id "
-            "WHERE s.user_id = ? ORDER BY s.started_at DESC",
+            "WHERE s.user_id = %s ORDER BY s.started_at DESC",
             (user["id"],),
-        ).fetchall()
+        )
+        rows = cur.fetchall()
     return [
         SessionOut(
             id=row["id"],
@@ -54,7 +55,7 @@ def delete_session(session_id: str, user=Depends(get_current_user)) -> dict[str,
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
-            "DELETE FROM sessions WHERE id = ? AND user_id = ?",
+            "DELETE FROM sessions WHERE id = %s AND user_id = %s",
             (session_id, user["id"]),
         )
         if cur.rowcount == 0:

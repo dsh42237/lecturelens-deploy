@@ -44,18 +44,19 @@ def _set_session_cookie(response: Response, token: str) -> None:
 def register(payload: UserCreate, response: Response) -> UserOut:
     with get_db() as conn:
         cur = conn.cursor()
-        existing = cur.execute("SELECT id FROM users WHERE email = ?", (payload.email,)).fetchone()
+        cur.execute("SELECT id FROM users WHERE email = %s", (payload.email,))
+        existing = cur.fetchone()
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use")
         now = datetime.utcnow().isoformat()
         password_hash = hash_password(payload.password)
         cur.execute(
-            "INSERT INTO users (email, password_hash, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO users (email, password_hash, created_at) VALUES (%s, %s, %s) RETURNING id",
             (payload.email, password_hash, now),
         )
-        user_id = cur.lastrowid
+        user_id = cur.fetchone()["id"]
         cur.execute(
-            "INSERT INTO profiles (user_id, full_name, program_name, institution, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO profiles (user_id, full_name, program_name, institution, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
             (user_id, None, None, None, now, now),
         )
         token = create_access_token({"sub": str(user_id), "email": payload.email})
@@ -67,9 +68,10 @@ def register(payload: UserCreate, response: Response) -> UserOut:
 def login(payload: UserLogin, response: Response) -> UserOut:
     with get_db() as conn:
         cur = conn.cursor()
-        row = cur.execute(
-            "SELECT id, email, password_hash FROM users WHERE email = ?", (payload.email,)
-        ).fetchone()
+        cur.execute(
+            "SELECT id, email, password_hash FROM users WHERE email = %s", (payload.email,)
+        )
+        row = cur.fetchone()
         if not row or not verify_password(payload.password, row["password_hash"]):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
         token = create_access_token({"sub": str(row["id"]), "email": row["email"]})
@@ -87,7 +89,6 @@ def logout(response: Response) -> dict[str, bool]:
 def me(session: str | None = Cookie(default=None)) -> UserOut:
     if not session:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
     try:
         payload = decode_token(session)
     except Exception as exc:
@@ -108,15 +109,13 @@ def create_mobile_link(payload: MobileLinkIn, session: str | None = Cookie(defau
     email = token_payload["email"]
     with get_db() as conn:
         cur = conn.cursor()
-        row = cur.execute(
-            "SELECT mobile_link_nonce FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+        cur.execute("SELECT mobile_link_nonce FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         nonce = int(row["mobile_link_nonce"] or 0) + 1
         cur.execute(
-            "UPDATE users SET mobile_link_nonce = ? WHERE id = ?",
+            "UPDATE users SET mobile_link_nonce = %s WHERE id = %s",
             (nonce, user_id),
         )
 
@@ -155,10 +154,10 @@ def mobile_exchange(payload: MobileExchangeIn, response: Response) -> UserOut:
 
     with get_db() as conn:
         cur = conn.cursor()
-        row = cur.execute(
-            "SELECT id, email, mobile_link_nonce FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+        cur.execute(
+            "SELECT id, email, mobile_link_nonce FROM users WHERE id = %s", (user_id,)
+        )
+        row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
         if int(row["mobile_link_nonce"] or 0) != int(nonce):

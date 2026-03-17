@@ -14,14 +14,16 @@ router = APIRouter(prefix="/profile", tags=["profile"])
 def get_profile(user=Depends(get_current_user)) -> ProfileOut:
     with get_db() as conn:
         cur = conn.cursor()
-        profile = cur.execute(
-            "SELECT full_name, program_name, institution FROM profiles WHERE user_id = ?",
+        cur.execute(
+            "SELECT full_name, program_name, institution FROM profiles WHERE user_id = %s",
             (user["id"],),
-        ).fetchone()
-        context = cur.execute(
-            "SELECT summary FROM profile_context WHERE user_id = ?",
+        )
+        profile = cur.fetchone()
+        cur.execute(
+            "SELECT summary FROM profile_context WHERE user_id = %s",
             (user["id"],),
-        ).fetchone()
+        )
+        context = cur.fetchone()
     return ProfileOut(
         full_name=profile["full_name"] if profile else None,
         program_name=profile["program_name"] if profile else None,
@@ -36,17 +38,19 @@ def update_profile(payload: ProfileIn, user=Depends(get_current_user)) -> Profil
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
-            "UPDATE profiles SET full_name = ?, program_name = ?, institution = ?, updated_at = ? WHERE user_id = ?",
+            "UPDATE profiles SET full_name = %s, program_name = %s, institution = %s, updated_at = %s WHERE user_id = %s",
             (payload.full_name, payload.program_name, payload.institution, now, user["id"]),
         )
-        profile = cur.execute(
-            "SELECT full_name, program_name, institution FROM profiles WHERE user_id = ?",
+        cur.execute(
+            "SELECT full_name, program_name, institution FROM profiles WHERE user_id = %s",
             (user["id"],),
-        ).fetchone()
-        context = cur.execute(
-            "SELECT summary FROM profile_context WHERE user_id = ?",
+        )
+        profile = cur.fetchone()
+        cur.execute(
+            "SELECT summary FROM profile_context WHERE user_id = %s",
             (user["id"],),
-        ).fetchone()
+        )
+        context = cur.fetchone()
     return ProfileOut(
         full_name=profile["full_name"] if profile else None,
         program_name=profile["program_name"] if profile else None,
@@ -59,16 +63,18 @@ def update_profile(payload: ProfileIn, user=Depends(get_current_user)) -> Profil
 def enrich_profile(user=Depends(get_current_user)) -> ProfileOut:
     with get_db() as conn:
         cur = conn.cursor()
-        profile = cur.execute(
-            "SELECT full_name, program_name, institution FROM profiles WHERE user_id = ?",
+        cur.execute(
+            "SELECT full_name, program_name, institution FROM profiles WHERE user_id = %s",
             (user["id"],),
-        ).fetchone()
+        )
+        profile = cur.fetchone()
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
-        courses = cur.execute(
-            "SELECT course_code, course_name FROM courses WHERE user_id = ?",
+        cur.execute(
+            "SELECT course_code, course_name FROM courses WHERE user_id = %s",
             (user["id"],),
-        ).fetchall()
+        )
+        courses = cur.fetchall()
         course_list = [
             f"{row['course_code']} - {row['course_name']}" for row in courses
         ]
@@ -77,14 +83,15 @@ def enrich_profile(user=Depends(get_current_user)) -> ProfileOut:
         )
         now = datetime.utcnow().isoformat()
         cur.execute(
-            "INSERT INTO profile_context (user_id, summary, sources, updated_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET summary = excluded.summary, sources = excluded.sources, updated_at = excluded.updated_at",
+            "INSERT INTO profile_context (user_id, summary, sources, updated_at) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT(user_id) DO UPDATE SET summary = EXCLUDED.summary, sources = EXCLUDED.sources, updated_at = EXCLUDED.updated_at",
             (user["id"], summary, json.dumps([]), now),
         )
-        context = cur.execute(
-            "SELECT summary FROM profile_context WHERE user_id = ?",
+        cur.execute(
+            "SELECT summary FROM profile_context WHERE user_id = %s",
             (user["id"],),
-        ).fetchone()
+        )
+        context = cur.fetchone()
     return ProfileOut(
         full_name=profile["full_name"],
         program_name=profile["program_name"],

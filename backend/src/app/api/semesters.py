@@ -11,10 +11,11 @@ router = APIRouter(prefix="/semesters", tags=["semesters"])
 def list_semesters(user=Depends(get_current_user)) -> list[SemesterOut]:
     with get_db() as conn:
         cur = conn.cursor()
-        rows = cur.execute(
-            "SELECT id, season, year FROM semesters WHERE user_id = ? ORDER BY year DESC",
+        cur.execute(
+            "SELECT id, season, year FROM semesters WHERE user_id = %s ORDER BY year DESC",
             (user["id"],),
-        ).fetchall()
+        )
+        rows = cur.fetchall()
     return [SemesterOut(id=row["id"], season=row["season"], year=row["year"]) for row in rows]
 
 
@@ -26,10 +27,10 @@ def create_semester(payload: SemesterIn, user=Depends(get_current_user)) -> Seme
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO semesters (user_id, season, year) VALUES (?, ?, ?)",
+            "INSERT INTO semesters (user_id, season, year) VALUES (%s, %s, %s) RETURNING id",
             (user["id"], season, payload.year),
         )
-        semester_id = cur.lastrowid
+        semester_id = cur.fetchone()["id"]
     return SemesterOut(id=semester_id, season=season, year=payload.year)
 
 
@@ -38,7 +39,7 @@ def delete_semester(semester_id: int, user=Depends(get_current_user)) -> dict[st
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
-            "DELETE FROM semesters WHERE id = ? AND user_id = ?",
+            "DELETE FROM semesters WHERE id = %s AND user_id = %s",
             (semester_id, user["id"]),
         )
         if cur.rowcount == 0:

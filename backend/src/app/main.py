@@ -11,7 +11,7 @@ from app.api.profile import router as profile_router
 from app.api.semesters import router as semesters_router
 from app.api.courses import router as courses_router
 from app.api.sessions import router as sessions_router
-from app.core.db import init_db
+from app.core.db import init_db, get_db
 
 app = FastAPI(title="LectureLens API")
 
@@ -31,8 +31,14 @@ app.add_middleware(
 
 
 @app.get("/health")
-async def health() -> dict[str, bool]:
-    return {"ok": True}
+async def health() -> dict:
+    try:
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+        return {"ok": True, "db": "connected"}
+    except Exception as e:
+        return {"ok": False, "db": "disconnected", "error": str(e)}
 
 
 @app.on_event("startup")

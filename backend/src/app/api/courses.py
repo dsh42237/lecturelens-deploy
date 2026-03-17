@@ -17,19 +17,20 @@ def list_courses(
     with get_db() as conn:
         cur = conn.cursor()
         if semester_id:
-            rows = cur.execute(
+            cur.execute(
                 "SELECT c.id, c.semester_id, c.course_code, c.course_name, cc.summary "
                 "FROM courses c LEFT JOIN course_context cc ON c.id = cc.course_id "
-                "WHERE c.user_id = ? AND c.semester_id = ? ORDER BY c.id DESC",
+                "WHERE c.user_id = %s AND c.semester_id = %s ORDER BY c.id DESC",
                 (user["id"], semester_id),
-            ).fetchall()
+            )
         else:
-            rows = cur.execute(
+            cur.execute(
                 "SELECT c.id, c.semester_id, c.course_code, c.course_name, cc.summary "
                 "FROM courses c LEFT JOIN course_context cc ON c.id = cc.course_id "
-                "WHERE c.user_id = ? ORDER BY c.id DESC",
+                "WHERE c.user_id = %s ORDER BY c.id DESC",
                 (user["id"],),
-            ).fetchall()
+            )
+        rows = cur.fetchall()
     return [
         CourseOut(
             id=row["id"],
@@ -46,17 +47,18 @@ def list_courses(
 def create_course(payload: CourseIn, user=Depends(get_current_user)) -> CourseOut:
     with get_db() as conn:
         cur = conn.cursor()
-        semester = cur.execute(
-            "SELECT id FROM semesters WHERE id = ? AND user_id = ?",
+        cur.execute(
+            "SELECT id FROM semesters WHERE id = %s AND user_id = %s",
             (payload.semester_id, user["id"]),
-        ).fetchone()
+        )
+        semester = cur.fetchone()
         if not semester:
             raise HTTPException(status_code=404, detail="Semester not found")
         cur.execute(
-            "INSERT INTO courses (user_id, semester_id, course_code, course_name) VALUES (?, ?, ?, ?)",
+            "INSERT INTO courses (user_id, semester_id, course_code, course_name) VALUES (%s, %s, %s, %s) RETURNING id",
             (user["id"], payload.semester_id, payload.course_code, payload.course_name),
         )
-        course_id = cur.lastrowid
+        course_id = cur.fetchone()["id"]
     return CourseOut(
         id=course_id,
         semester_id=payload.semester_id,
@@ -71,7 +73,7 @@ def delete_course(course_id: int, user=Depends(get_current_user)) -> dict[str, b
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
-            "DELETE FROM courses WHERE id = ? AND user_id = ?",
+            "DELETE FROM courses WHERE id = %s AND user_id = %s",
             (course_id, user["id"]),
         )
         if cur.rowcount == 0:
@@ -83,29 +85,32 @@ def delete_course(course_id: int, user=Depends(get_current_user)) -> dict[str, b
 def enrich_course(course_id: int, user=Depends(get_current_user)) -> CourseOut:
     with get_db() as conn:
         cur = conn.cursor()
-        course = cur.execute(
-            "SELECT course_code, course_name, semester_id FROM courses WHERE id = ? AND user_id = ?",
+        cur.execute(
+            "SELECT course_code, course_name, semester_id FROM courses WHERE id = %s AND user_id = %s",
             (course_id, user["id"]),
-        ).fetchone()
+        )
+        course = cur.fetchone()
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
-        profile = cur.execute(
-            "SELECT institution FROM profiles WHERE user_id = ?",
+        cur.execute(
+            "SELECT institution FROM profiles WHERE user_id = %s",
             (user["id"],),
-        ).fetchone()
+        )
+        profile = cur.fetchone()
         summary = generate_course_context(
             course["course_code"], course["course_name"], profile["institution"] if profile else None
         )
         now = datetime.utcnow().isoformat()
         cur.execute(
-            "INSERT INTO course_context (course_id, summary, sources, updated_at) VALUES (?, ?, ?, ?) "
-            "ON CONFLICT(course_id) DO UPDATE SET summary = excluded.summary, sources = excluded.sources, updated_at = excluded.updated_at",
+            "INSERT INTO course_context (course_id, summary, sources, updated_at) VALUES (%s, %s, %s, %s) "
+            "ON CONFLICT(course_id) DO UPDATE SET summary = EXCLUDED.summary, sources = EXCLUDED.sources, updated_at = EXCLUDED.updated_at",
             (course_id, summary, json.dumps([]), now),
         )
-        context = cur.execute(
-            "SELECT summary FROM course_context WHERE course_id = ?",
+        cur.execute(
+            "SELECT summary FROM course_context WHERE course_id = %s",
             (course_id,),
-        ).fetchone()
+        )
+        context = cur.fetchone()
     return CourseOut(
         id=course_id,
         semester_id=course["semester_id"],
