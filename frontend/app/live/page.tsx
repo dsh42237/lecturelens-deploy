@@ -1,18 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import TranscriptPanel from "../components/TranscriptPanel";
-import LiveNotesPanel from "../components/LiveNotesPanel";
-import FinalNotesPanel from "../components/FinalNotesPanel";
-import { connectSession } from "../lib/ws";
+import TranscriptPanel from "../../components/TranscriptPanel";
+import LiveNotesPanel from "../../components/LiveNotesPanel";
+import FinalNotesPanel from "../../components/FinalNotesPanel";
+import { connectSession } from "../../lib/ws";
 import type {
   AudioFramePayload,
   FinalNotesPayload,
   LiveNotesPayload,
   TranscriptLine
-} from "../lib/types";
-import AppLayout from "../components/AppLayout";
-import { createMobileLink, getMe, listCourses } from "../lib/api";
+} from "../../lib/types";
+import AppLayout from "../../components/AppLayout";
+import { createMobileLink, getMe, listCourses } from "../../lib/api";
 
 const TARGET_SAMPLE_RATE = 16000;
 const FRAME_SAMPLES = 320; // ~20ms at 16kHz
