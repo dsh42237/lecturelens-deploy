@@ -33,8 +33,8 @@ def _set_session_cookie(response: Response, token: str) -> None:
         COOKIE_NAME,
         token,
         httponly=True,
-        samesite="lax",
-        secure=COOKIE_SECURE,
+        samesite="none",
+        secure=True,
         max_age=60 * 60 * 24 * 7,
         path="/",
     )
