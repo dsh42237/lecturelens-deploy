@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { href: "/", label: "Live Session" },
+  { href: "/live", label: "Live Session" },
   { href: "/profile", label: "Profile" },
   { href: "/semesters", label: "Semesters & Courses" },
   { href: "/sessions", label: "Session History" }
