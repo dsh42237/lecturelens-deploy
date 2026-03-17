@@ -86,9 +86,9 @@ export default function LandingPage() {
       <section id="features" style={{ maxWidth: "1200px", margin: "0 auto", padding: "20px 48px 80px" }}>
         <div style={{ textAlign: "center", marginBottom: "48px" }}>
           <div style={{
-            display: "inline-block", fontSize: "0.72rem", letterSpacing: "0.12em",
-            textTransform: "uppercase", color: "var(--muted)", marginBottom: "12px",
             display: "flex", alignItems: "center", gap: "10px", justifyContent: "center",
+            fontSize: "0.72rem", letterSpacing: "0.12em",
+            textTransform: "uppercase", color: "var(--muted)", marginBottom: "12px",
           }}>
             <div style={{ flex: 1, maxWidth: "60px", height: "1px", background: "var(--border)" }} />
             FEATURES
