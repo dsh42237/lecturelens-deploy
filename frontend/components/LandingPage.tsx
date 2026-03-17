@@ -70,10 +70,10 @@ export default function LandingPage() {
           </div>
         </div>
 
-        {/* Right — logo */}
+        {/* Right — Logo */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Image
-            src="/logo.jpeg"
+            src="/Logo.jpeg"
             alt="LectureLens"
             width={340}
             height={340}
