@@ -10,7 +10,7 @@ _model: Optional[WhisperModel] = None
 def _get_model() -> WhisperModel:
     global _model
     if _model is None:
-        model_name = os.getenv("WHISPER_MODEL", "small.en")
+        model_name = os.getenv("WHISPER_MODEL", "tiny.en")
         _model = WhisperModel(model_name)
     return _model
 
