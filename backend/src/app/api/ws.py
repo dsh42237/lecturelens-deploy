@@ -160,10 +160,12 @@ def get_user_id_from_mobile_token(token: str, session_id: str) -> int | None:
         return None
 
     with get_db() as conn:
-        row = conn.execute(
-            "SELECT mobile_link_nonce FROM users WHERE id = ?",
-            (user_id_int,),
-        ).fetchone()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT mobile_link_nonce FROM users WHERE id = %s",
+                (user_id_int,),
+            )
+            row = cur.fetchone()
     if not row:
         return None
     if int(row["mobile_link_nonce"] or 0) != nonce_int:
@@ -668,10 +670,11 @@ def persist_live_notes_history(state: SessionState, session_id: str) -> None:
         return
     history = SESSION_LIVE_HISTORY.get(session_id, state.live_notes_history)
     with get_db() as conn:
-        conn.execute(
-            "UPDATE sessions SET live_notes_history = ? WHERE id = ? AND user_id = ?",
-            (json.dumps(history), session_id, state.user_id),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE sessions SET live_notes_history = %s WHERE id = %s AND user_id = %s",
+                (json.dumps(history), session_id, state.user_id),
+            )
 
 
 @router.websocket("/ws/session/{session_id}")
@@ -723,17 +726,18 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
             ended_at = datetime.utcnow().isoformat()
             history = SESSION_LIVE_HISTORY.get(session_id, state.live_notes_history)
             with get_db() as conn:
-                conn.execute(
-                    "UPDATE sessions SET ended_at = ?, final_notes_text = ?, live_notes_history = ? "
-                    "WHERE id = ? AND user_id = ?",
-                    (
-                        ended_at,
-                        state.final_notes_text or None,
-                        json.dumps(history),
-                        session_id,
-                        state.user_id,
-                    ),
-                )
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE sessions SET ended_at = %s, final_notes_text = %s, live_notes_history = %s "
+                        "WHERE id = %s AND user_id = %s",
+                        (
+                            ended_at,
+                            state.final_notes_text or None,
+                            json.dumps(history),
+                            session_id,
+                            state.user_id,
+                        ),
+                    )
         SESSION_TRANSCRIPT_BUFFER.pop(session_id, None)
         SESSION_LIVE_PENDING.pop(session_id, None)
         SESSION_LIVE_STATE.pop(session_id, None)
@@ -834,36 +838,40 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                 if isinstance(course_id, int):
                     state.course_id = course_id
                     with get_db() as conn:
-                        conn.execute(
-                            "UPDATE sessions SET course_id = ? WHERE id = ? AND user_id = ?",
-                            (state.course_id, session_id, state.user_id),
-                        )
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE sessions SET course_id = %s WHERE id = %s AND user_id = %s",
+                                (state.course_id, session_id, state.user_id),
+                            )
 
                 state.running = True
 
                 row_exists = False
                 with get_db() as conn:
-                    row = conn.execute(
-                        "SELECT id FROM sessions WHERE id = ?",
-                        (session_id,),
-                    ).fetchone()
-                    row_exists = row is not None
-                    if not row_exists:
-                        started_at = datetime.utcnow().isoformat()
-                        conn.execute(
-                            "INSERT OR REPLACE INTO sessions "
-                            "(id, user_id, course_id, started_at, ended_at, final_notes_text, live_notes_history) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            (
-                                session_id,
-                                state.user_id,
-                                state.course_id,
-                                started_at,
-                                None,
-                                None,
-                                "[]",
-                            ),
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT id FROM sessions WHERE id = %s",
+                            (session_id,),
                         )
+                        row = cur.fetchone()
+                        row_exists = row is not None
+                        if not row_exists:
+                            started_at = datetime.utcnow().isoformat()
+                            cur.execute(
+                                "INSERT INTO sessions "
+                                "(id, user_id, course_id, started_at, ended_at, final_notes_text, live_notes_history) "
+                                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                                "ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id",
+                                (
+                                    session_id,
+                                    state.user_id,
+                                    state.course_id,
+                                    started_at,
+                                    None,
+                                    None,
+                                    "[]",
+                                ),
+                            )
 
                 if live_notes_task is None or live_notes_task.done():
                     live_notes_task = asyncio.create_task(live_notes_loop())
