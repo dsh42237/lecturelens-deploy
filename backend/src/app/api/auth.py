@@ -35,7 +35,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
         httponly=True,
         samesite="none",
         secure=True,
-        #max_age=60 * 60 * 24 * 7,
+        max_age=60 * 60 * 24 * 7,
         path="/",
     )
 
