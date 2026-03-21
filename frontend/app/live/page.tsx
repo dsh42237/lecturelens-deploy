@@ -13,7 +13,8 @@ import type {
   TranscriptLine
 } from "../../lib/types";
 import AppLayout from "../../components/AppLayout";
-import { createMobileLink, getMe, listCourses } from "../../lib/api";
+import { createMobileLink, getMe, listCourses, listSessions } from "../../lib/api";
+import type { SessionInfo } from "../../lib/api";
 
 const TARGET_SAMPLE_RATE = 16000;
 const FRAME_SAMPLES = 320; // ~20ms at 16kHz
@@ -110,6 +111,8 @@ export default function HomePage() {
   const [courses, setCourses] = useState<{ id: number; course_code: string; course_name: string }[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<number | "">("");
   const [courseStatus, setCourseStatus] = useState<string | null>(null);
+  const [previousSessions, setPreviousSessions] = useState<SessionInfo[]>([]);
+  const [sessionsStatus, setSessionsStatus] = useState<string | null>(null);
   const [captureSource, setCaptureSource] = useState<CaptureSource>("desktop");
   const [mobileBaseUrl, setMobileBaseUrl] = useState("");
   const [mobileApiBaseUrl, setMobileApiBaseUrl] = useState("");
@@ -284,6 +287,31 @@ export default function HomePage() {
     setCourseStatus("Login to attach a course");
     setMobileAuthToken(null);
   }, [authState]);
+
+  useEffect(() => {
+    if (authState !== "authenticated") return;
+
+    let isMounted = true;
+    const loadSessions = async () => {
+      setSessionsStatus("Loading previous sessions...");
+      try {
+        const items = await listSessions();
+        if (!isMounted) return;
+        setPreviousSessions(items);
+        setSessionsStatus(null);
+      } catch (err) {
+        if (!isMounted) return;
+        setSessionsStatus(
+          err instanceof Error ? err.message : "Failed to load previous sessions"
+        );
+      }
+    };
+
+    loadSessions();
+    return () => {
+      isMounted = false;
+    };
+  }, [authState, completedSessionId]);
 
   const refreshMobileLink = async () => {
     if (!sessionId) return;
@@ -918,6 +946,17 @@ export default function HomePage() {
   const historyUrl = completedSessionId
     ? `/sessions?session=${encodeURIComponent(completedSessionId)}`
     : "/sessions";
+  const relatedSessions = previousSessions
+    .filter(
+      (session) =>
+        Boolean(session.ended_at) &&
+        session.course_id === selectedCourseId &&
+        session.id !== completedSessionId
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
+    );
   const activityMessage =
     finalizationState === "ready"
       ? "Final notes are ready."
@@ -1173,6 +1212,114 @@ export default function HomePage() {
                 />
               </div>
             </aside>
+          </section>
+
+          <section className="panel-card course-history-panel">
+            <div className="panel-heading course-history-heading">
+              <div>
+                <h2>Previous Sessions</h2>
+                <p className="course-history-copy">
+                  Stay in the same course flow and expand earlier sessions here instead of jumping to session history.
+                </p>
+              </div>
+              <span className="pill muted">
+                {selectedCourse ? `${relatedSessions.length} for ${selectedCourse.course_code}` : "Pick a course"}
+              </span>
+            </div>
+
+            {!selectedCourse && (
+              <div className="course-history-empty">
+                Choose a course to review earlier sessions for that subject.
+              </div>
+            )}
+
+            {selectedCourse && sessionsStatus && (
+              <div className="course-history-empty">{sessionsStatus}</div>
+            )}
+
+            {selectedCourse && !sessionsStatus && relatedSessions.length === 0 && (
+              <div className="course-history-empty">
+                No completed sessions yet for {selectedCourse.course_code}.
+              </div>
+            )}
+
+            {selectedCourse && !sessionsStatus && relatedSessions.length > 0 && (
+              <div className="course-history-list">
+                {relatedSessions.map((session) => (
+                  <details key={session.id} className="course-history-item">
+                    <summary>
+                      <div className="course-history-item-title">
+                        <strong>{new Date(session.started_at).toLocaleDateString()}</strong>
+                        <span>{new Date(session.started_at).toLocaleTimeString()}</span>
+                      </div>
+                      <div className="course-history-item-meta">
+                        <span>{session.course_code ?? selectedCourse.course_code}</span>
+                        <span>{session.live_notes_history?.length ?? 0} live note cards</span>
+                      </div>
+                    </summary>
+
+                    <div className="course-history-item-body">
+                      <div className="course-history-item-stamps">
+                        <span>Started: {new Date(session.started_at).toLocaleString()}</span>
+                        {session.ended_at && (
+                          <span>Ended: {new Date(session.ended_at).toLocaleString()}</span>
+                        )}
+                      </div>
+
+                      {session.final_notes_text && (
+                        <section className="course-history-block">
+                          <h3>Final Notes</h3>
+                          <pre className="context-inline course-history-text">
+                            {session.final_notes_text}
+                          </pre>
+                        </section>
+                      )}
+
+                      {session.student_notes_text && (
+                        <section className="course-history-block">
+                          <h3>Student Notes</h3>
+                          <pre className="context-inline course-history-text">
+                            {session.student_notes_text}
+                          </pre>
+                        </section>
+                      )}
+
+                      {session.live_notes_history && session.live_notes_history.length > 0 && (
+                        <section className="course-history-block">
+                          <h3>Live Notes Timeline</h3>
+                          <div className="course-history-timeline">
+                            {session.live_notes_history.map((entry, index) => {
+                              const notes = entry.notes as {
+                                nowTopic?: string;
+                                keyPoints?: string[];
+                              };
+                              return (
+                                <article
+                                  key={`${session.id}-${entry.timestamp}-${index}`}
+                                  className="course-history-timeline-item"
+                                >
+                                  <div className="course-history-timeline-time">
+                                    {new Date(entry.timestamp).toLocaleString()}
+                                  </div>
+                                  <strong>{notes.nowTopic ?? "Topic update"}</strong>
+                                  {notes.keyPoints && notes.keyPoints.length > 0 && (
+                                    <ul className="topic-bullets">
+                                      {notes.keyPoints.slice(0, 4).map((point, pointIndex) => (
+                                        <li key={`${session.id}-${index}-${pointIndex}`}>{point}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       </main>

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 
 interface StudentNotesPanelProps {
   value: string;
@@ -25,27 +27,46 @@ export default function StudentNotesPanel({
   onClear,
   disabled = false
 }: StudentNotesPanelProps) {
-  const editorRef = useRef<HTMLDivElement | null>(null);
-  const plainText = extractText(value);
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [2, 3]
+        }
+      })
+    ],
+    immediatelyRender: false,
+    content: value,
+    editable: !disabled,
+    editorProps: {
+      attributes: {
+        class: "student-notes-editor"
+      }
+    },
+    onUpdate: ({ editor: currentEditor }) => {
+      onChange(currentEditor.getHTML());
+    }
+  });
+
+  const plainText = editor?.getText().replace(/\u00a0/g, " ").trim() ?? extractText(value);
 
   useEffect(() => {
-    const node = editorRef.current;
-    if (!node) return;
-    if (node.innerHTML !== value) {
-      node.innerHTML = value;
+    if (!editor) return;
+    editor.setEditable(!disabled);
+  }, [disabled, editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const nextHtml = value || "";
+    if (editor.getHTML() !== nextHtml) {
+      editor.commands.setContent(nextHtml, { emitUpdate: false });
     }
-  }, [value]);
+  }, [editor, value]);
 
-  const runCommand = (command: string, commandValue?: string) => {
-    if (disabled) return;
-    const editor = editorRef.current;
-    editor?.focus();
-    document.execCommand(command, false, commandValue);
-    onChange(editor?.innerHTML ?? "");
-  };
-
-  const handleInput = () => {
-    onChange(editorRef.current?.innerHTML ?? "");
+  const runCommand = (command: () => void) => {
+    if (!editor || disabled) return;
+    command();
+    editor.commands.focus();
   };
 
   return (
@@ -56,32 +77,58 @@ export default function StudentNotesPanel({
       </div>
 
       <div className="student-notes-toolbar">
-        <button type="button" className="ghost-btn" onClick={() => runCommand("bold")} disabled={disabled}>
-          Bold
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("bold") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleBold().run())}
+          disabled={disabled || !editor}
+        >
+          B
         </button>
-        <button type="button" className="ghost-btn" onClick={() => runCommand("italic")} disabled={disabled}>
-          Italic
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("italic") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleItalic().run())}
+          disabled={disabled || !editor}
+        >
+          I
         </button>
-        <button type="button" className="ghost-btn" onClick={() => runCommand("insertUnorderedList")} disabled={disabled}>
-          Bullets
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("bulletList") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleBulletList().run())}
+          disabled={disabled || !editor}
+        >
+          • List
         </button>
-        <button type="button" className="ghost-btn" onClick={() => runCommand("insertOrderedList")} disabled={disabled}>
-          Numbers
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("orderedList") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleOrderedList().run())}
+          disabled={disabled || !editor}
+        >
+          1. List
         </button>
-        <button type="button" className="ghost-btn" onClick={() => runCommand("formatBlock", "<h3>")} disabled={disabled}>
-          Heading
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("heading", { level: 3 }) ? "active" : ""}`}
+          onClick={() =>
+            runCommand(() => editor?.chain().focus().toggleHeading({ level: 3 }).run())
+          }
+          disabled={disabled || !editor}
+        >
+          H3
         </button>
       </div>
 
       <div className="panel-scroll student-notes-shell">
         <div
-          ref={editorRef}
-          className="student-notes-editor"
-          contentEditable={!disabled}
-          suppressContentEditableWarning
+          className="student-notes-editor-shell"
+          data-empty={plainText ? "false" : "true"}
           data-placeholder="Add your own reminders, examples, confusions, and callouts while the lecture is running."
-          onInput={handleInput}
-        />
+        >
+          <EditorContent editor={editor} />
+        </div>
         <div className="student-notes-meta">
           <p className="student-notes-hint">
             Rich formatting helps while writing here. Final note generation still uses the clean text content.
