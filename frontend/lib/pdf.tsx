@@ -13,6 +13,9 @@ type MarkdownBlock =
 
 let mermaidReady = false;
 let mermaidCounter = 0;
+let pdfFontCache:
+  | Promise<{ regular: string; bold: string; italic: string }>
+  | null = null;
 
 const MERMAID_TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\\n/g, " / "],
@@ -39,6 +42,46 @@ function ensureMermaid() {
     theme: "default"
   });
   mermaidReady = true;
+}
+
+function arrayBufferToBinaryString(buffer: ArrayBuffer) {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return binary;
+}
+
+async function loadPdfFonts() {
+  if (!pdfFontCache) {
+    pdfFontCache = Promise.all([
+      fetch("/fonts/Arial.ttf").then((response) => response.arrayBuffer()),
+      fetch("/fonts/Arial-Bold.ttf").then((response) => response.arrayBuffer()),
+      fetch("/fonts/Arial-Italic.ttf").then((response) => response.arrayBuffer()),
+    ]).then(([regular, bold, italic]) => ({
+      regular: arrayBufferToBinaryString(regular),
+      bold: arrayBufferToBinaryString(bold),
+      italic: arrayBufferToBinaryString(italic),
+    }));
+  }
+  return pdfFontCache;
+}
+
+async function registerPdfFonts(doc: import("jspdf").jsPDF) {
+  const fonts = await loadPdfFonts();
+  doc.addFileToVFS("ArialCustom-Regular.ttf", fonts.regular);
+  doc.addFont("ArialCustom-Regular.ttf", "ArialCustom", "normal");
+  doc.addFileToVFS("ArialCustom-Bold.ttf", fonts.bold);
+  doc.addFont("ArialCustom-Bold.ttf", "ArialCustom", "bold");
+  doc.addFileToVFS("ArialCustom-Italic.ttf", fonts.italic);
+  doc.addFont("ArialCustom-Italic.ttf", "ArialCustom", "italic");
+}
+
+function setPdfFont(doc: import("jspdf").jsPDF, style: "normal" | "bold" | "italic" = "normal") {
+  doc.setFont("ArialCustom", style);
 }
 
 function sanitizeLabel(label: string) {
@@ -83,7 +126,7 @@ function drawTextToken(
   x: number,
   y: number
 ) {
-  doc.setFont(token.isMath ? "times" : "helvetica", token.isMath ? "italic" : "normal");
+  setPdfFont(doc, token.isMath ? "italic" : "normal");
   doc.text(token.text, x, y);
 }
 
@@ -91,30 +134,33 @@ function measureTextToken(
   doc: import("jspdf").jsPDF,
   token: { text: string; isMath: boolean }
 ) {
-  doc.setFont(token.isMath ? "times" : "helvetica", token.isMath ? "italic" : "normal");
+  setPdfFont(doc, token.isMath ? "italic" : "normal");
   return doc.getTextWidth(token.text);
 }
 
 function normalizeMathText(text: string) {
   let normalized = text;
+  normalized = normalized.replace(/\\(?:t|d)?frac/g, "\\frac");
   for (let i = 0; i < 6; i += 1) {
     normalized = normalized.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
     normalized = normalized.replace(/\\sqrt\{([^{}]+)\}/g, "sqrt($1)");
   }
   return normalized
-    .replace(/\\pm/g, "±")
-    .replace(/\\cdot/g, "·")
-    .replace(/\\times/g, "×")
-    .replace(/\\neq/g, "≠")
-    .replace(/\\geq/g, "≥")
-    .replace(/\\leq/g, "≤")
-    .replace(/\\to/g, "→")
-    .replace(/\\Rightarrow/g, "⇒")
+    .replace(/\\pm/g, "+/-")
+    .replace(/\\cdot/g, " * ")
+    .replace(/\\times/g, " x ")
+    .replace(/\\neq/g, " !=")
+    .replace(/\\geq/g, " >=")
+    .replace(/\\leq/g, " <=")
+    .replace(/\\to/g, " -> ")
+    .replace(/\\Rightarrow/g, " => ")
     .replace(/\\left/g, "")
     .replace(/\\right/g, "")
     .replace(/\\,/g, " ")
     .replace(/\\!/g, "")
     .replace(/\\text\{([^{}]+)\}/g, "$1")
+    .replace(/\\mathrm\{([^{}]+)\}/g, "$1")
+    .replace(/\\mathbf\{([^{}]+)\}/g, "$1")
     .replace(/[{}]/g, "")
     .replace(/\\/g, "")
     .replace(/\s+/g, " ")
@@ -265,38 +311,55 @@ async function renderMermaidToDataUrl(code: string) {
     const parser = new DOMParser();
     const svgDoc = parser.parseFromString(result.svg, "image/svg+xml");
     const svgElement = svgDoc.documentElement;
-    const width = Number.parseFloat(svgElement.getAttribute("width") || "1200") || 1200;
-    const height = Number.parseFloat(svgElement.getAttribute("height") || "700") || 700;
-
-    const svgBlob = new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(svgBlob);
-    try {
-      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const element = new Image();
-        element.onload = () => resolve(element);
-        element.onerror = () => reject(new Error("Failed to load Mermaid SVG"));
-        element.src = url;
-      });
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(width));
-      canvas.height = Math.max(1, Math.round(height));
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return null;
+    let width = Number.parseFloat(svgElement.getAttribute("width") || "0");
+    let height = Number.parseFloat(svgElement.getAttribute("height") || "0");
+    if (!width || !height) {
+      const viewBox = svgElement
+        .getAttribute("viewBox")
+        ?.split(/[ ,]+/)
+        .map((value) => Number.parseFloat(value));
+      if (viewBox && viewBox.length === 4) {
+        width = width || viewBox[2];
+        height = height || viewBox[3];
       }
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      return {
-        dataUrl: canvas.toDataURL("image/png"),
-        width: canvas.width,
-        height: canvas.height
-      };
-    } finally {
-      URL.revokeObjectURL(url);
     }
+    width = width || 1200;
+    height = height || 700;
+
+    return {
+      svg: result.svg,
+      width: Math.max(1, Math.round(width)),
+      height: Math.max(1, Math.round(height))
+    };
   } catch {
     return null;
+  }
+}
+
+async function svgToPngDataUrl(svg: string, width: number, height: number) {
+  const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("Failed to load SVG image"));
+      element.src = url;
+    });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width));
+    canvas.height = Math.max(1, Math.round(height));
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return null;
+    }
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png");
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -319,18 +382,18 @@ function drawChrome(
   for (let page = 1; page <= pageCount; page += 1) {
     doc.setPage(page);
 
-    doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 120, pageHeight / 2 - 120, 240, 240);
+    doc.addImage(watermarkDataUrl, "PNG", pageWidth / 2 - 95, pageHeight / 2 - 95, 190, 190);
 
     doc.setDrawColor(219, 228, 240);
     doc.line(36, 58, pageWidth - 36, 58);
     doc.line(36, pageHeight - 42, pageWidth - 36, pageHeight - 42);
 
     doc.addImage(logoDataUrl, "PNG", 38, 22, 24, 24);
-    doc.setFont("helvetica", "bold");
+    setPdfFont(doc, "bold");
     doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
     doc.text("LectureLens", 70, 30);
-    doc.setFont("helvetica", "normal");
+    setPdfFont(doc, "normal");
     doc.setFontSize(10);
     doc.setTextColor(71, 85, 105);
     doc.text(session.course_code ?? "Lecture session", 70, 44);
@@ -363,6 +426,17 @@ function ensurePage(
   }
   doc.addPage();
   return top;
+}
+
+function estimateWrappedHeight(
+  doc: import("jspdf").jsPDF,
+  text: string,
+  width: number,
+  lineHeight: number,
+  extra = 0,
+  indent = 0
+) {
+  return layoutTextLines(doc, text, width, indent).length * lineHeight + extra;
 }
 
 function layoutTextLines(
@@ -437,11 +511,12 @@ export async function exportSessionPdf(
     format: "a4",
     compress: true,
   });
+  await registerPdfFonts(doc);
 
   const pageWidth = doc.internal.pageSize.getWidth();
-  const marginX = 48;
-  const top = 78;
-  const bottom = 54;
+  const marginX = 44;
+  const top = 72;
+  const bottom = 48;
   const contentWidth = pageWidth - marginX * 2;
   const accentBlue: [number, number, number] = [29, 78, 216];
   const textColor: [number, number, number] = [15, 23, 42];
@@ -453,16 +528,16 @@ export async function exportSessionPdf(
 
   doc.setFillColor(248, 251, 255);
   doc.setDrawColor(219, 228, 240);
-  doc.roundedRect(marginX, y, contentWidth, 118, 18, 18, "FD");
-  doc.addImage(logoDataUrl, "PNG", marginX + 18, y + 18, 36, 36);
-  doc.setFont("helvetica", "bold");
+  doc.roundedRect(marginX, y, contentWidth, 94, 18, 18, "FD");
+  doc.addImage(logoDataUrl, "PNG", marginX + 18, y + 18, 30, 30);
+  setPdfFont(doc, "bold");
   doc.setFontSize(12);
   doc.setTextColor(...accentBlue);
   doc.text("LECTURELENS STUDY PACK", marginX + 68, y + 24);
   doc.setFontSize(24);
   doc.setTextColor(...textColor);
   doc.text(session.course_name ?? "Lecture Notes", marginX + 68, y + 52);
-  doc.setFont("helvetica", "normal");
+  setPdfFont(doc, "normal");
   doc.setFontSize(13);
   doc.setTextColor(...muted);
   doc.text(session.course_code ?? "Lecture session", marginX + 68, y + 72);
@@ -476,71 +551,83 @@ export async function exportSessionPdf(
   doc.text(
     `Ended ${session.ended_at ? new Date(session.ended_at).toLocaleString() : "In progress"}`,
     rightX,
-    y + 66,
+    y + 64,
     { align: "right" }
   );
 
-  y += 138;
+  y += 112;
 
   if (subtitle) {
     doc.setFontSize(14);
     doc.setTextColor(71, 85, 105);
-    y = drawWrappedText(doc, subtitle, marginX, y, contentWidth, 18);
-    y += 10;
+    y = drawWrappedText(doc, subtitle, marginX, y, contentWidth, 17);
+    y += 8;
   }
 
-  doc.setFont("helvetica", "bold");
+  setPdfFont(doc, "bold");
   doc.setFontSize(10);
   doc.setTextColor(124, 109, 68);
   doc.text("FINAL NOTES", marginX, y);
-  y += 18;
+  y += 16;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(12);
+  setPdfFont(doc, "normal");
+  doc.setFontSize(11.5);
   doc.setTextColor(...textColor);
 
   for (const block of blocks) {
     if (block.type === "subtitle") {
-      y = ensurePage(doc, y, 34, top, bottom);
-      doc.setFont("times", "italic");
+      y = ensurePage(doc, y, estimateWrappedHeight(doc, block.text, contentWidth, 16, 8), top, bottom);
+      setPdfFont(doc, "italic");
       doc.setFontSize(13);
       doc.setTextColor(...muted);
-      y = drawWrappedText(doc, block.text, marginX, y, contentWidth, 17);
+      y = drawWrappedText(doc, block.text, marginX, y, contentWidth, 16);
       y += 6;
       continue;
     }
 
     if (block.type === "heading") {
-      y = ensurePage(doc, y, 44, top, bottom);
+      y = ensurePage(doc, y, 34, top, bottom);
       doc.setDrawColor(226, 232, 240);
       doc.line(marginX, y + 4, marginX + contentWidth, y + 4);
-      y += 18;
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(18);
+      y += 14;
+      setPdfFont(doc, "bold");
+      doc.setFontSize(16);
       doc.setTextColor(...textColor);
       doc.text(block.text, marginX, y);
-      y += 16;
+      y += 12;
       continue;
     }
 
     if (block.type === "bullet") {
-      y = ensurePage(doc, y, 30, top, bottom);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(12);
+      y = ensurePage(
+        doc,
+        y,
+        estimateWrappedHeight(doc, block.text, contentWidth - 16, 15, 5),
+        top,
+        bottom
+      );
+      setPdfFont(doc, "normal");
+      doc.setFontSize(11.5);
       doc.setTextColor(...textColor);
       doc.text("•", marginX + 2, y);
-      const nextY = drawWrappedText(doc, block.text, marginX + 16, y, contentWidth - 16, 16);
-      y = nextY + 6;
+      const nextY = drawWrappedText(doc, block.text, marginX + 16, y, contentWidth - 16, 15);
+      y = nextY + 5;
       continue;
     }
 
     if (block.type === "paragraph") {
-      y = ensurePage(doc, y, 28, top, bottom);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(12);
+      y = ensurePage(
+        doc,
+        y,
+        estimateWrappedHeight(doc, block.text, contentWidth, 15, 6),
+        top,
+        bottom
+      );
+      setPdfFont(doc, "normal");
+      doc.setFontSize(11.5);
       doc.setTextColor(...textColor);
-      y = drawWrappedText(doc, block.text, marginX, y, contentWidth, 16);
-      y += 8;
+      y = drawWrappedText(doc, block.text, marginX, y, contentWidth, 15);
+      y += 6;
       continue;
     }
 
@@ -551,25 +638,32 @@ export async function exportSessionPdf(
       }
       const maxDiagramWidth = contentWidth - 16;
       const diagramHeight = (rendered.height / rendered.width) * maxDiagramWidth;
-      y = ensurePage(doc, y, diagramHeight + 38, top, bottom);
+      y = ensurePage(doc, y, diagramHeight + 32, top, bottom);
       doc.setFillColor(248, 250, 252);
       doc.setDrawColor(219, 228, 240);
-      doc.roundedRect(marginX, y, contentWidth, diagramHeight + 20, 14, 14, "FD");
-      doc.setFont("helvetica", "bold");
+      doc.roundedRect(marginX, y, contentWidth, diagramHeight + 18, 14, 14, "FD");
+      setPdfFont(doc, "bold");
       doc.setFontSize(11);
       doc.setTextColor(...muted);
       doc.text("Concept Diagram", marginX + 14, y + 16);
-      doc.addImage(
-        rendered.dataUrl,
-        "PNG",
-        marginX + 8,
-        y + 24,
-        maxDiagramWidth,
-        diagramHeight,
-        undefined,
-        "FAST"
-      );
-      y += diagramHeight + 34;
+      try {
+        await doc.addSvgAsImage(rendered.svg, marginX + 8, y + 22, maxDiagramWidth, diagramHeight);
+      } catch {
+        const fallbackDataUrl = await svgToPngDataUrl(rendered.svg, rendered.width, rendered.height);
+        if (fallbackDataUrl) {
+          doc.addImage(
+            fallbackDataUrl,
+            "PNG",
+            marginX + 8,
+            y + 22,
+            maxDiagramWidth,
+            diagramHeight,
+            undefined,
+            "FAST"
+          );
+        }
+      }
+      y += diagramHeight + 28;
     }
   }
 
