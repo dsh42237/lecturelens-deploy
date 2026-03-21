@@ -386,7 +386,7 @@ export default function MobileCapturePage() {
         <p className="muted">Linked to session {sessionId.slice(0, 8)}</p>
         {mediaBlockedByInsecure && (
           <p className="inline-error">
-            This mobile browser blocks mic/camera on HTTP. Use HTTPS tunnel for capture.
+            This mobile browser blocks mic/camera on HTTP. Production works over HTTPS directly; tunnels are only needed for local development.
           </p>
         )}
 

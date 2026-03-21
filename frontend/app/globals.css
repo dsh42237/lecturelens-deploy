@@ -886,6 +886,38 @@ main {
   flex-wrap: wrap;
 }
 
+.mobile-link-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.mobile-link-summary .status-card {
+  min-width: 0;
+  word-break: break-word;
+}
+
+.phone-advanced {
+  margin: 12px 0 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.phone-advanced summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.phone-advanced-body {
+  padding: 0 12px 12px;
+  display: grid;
+  gap: 12px;
+}
+
 .mobile-link-text {
   margin-top: 8px;
   word-break: break-all;

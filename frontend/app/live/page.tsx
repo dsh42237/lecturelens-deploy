@@ -55,6 +55,18 @@ function getJwtExpMs(token: string): number | null {
   return null;
 }
 
+function normalizeWsBase(url: string): string {
+  return url
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/^https:\/\//, "wss://")
+    .replace(/^http:\/\//, "ws://");
+}
+
+function isLocalHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".local");
+}
+
 export default function HomePage() {
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "logged_out">(
     "checking"
@@ -93,6 +105,11 @@ export default function HomePage() {
   const [mobileApiBaseUrl, setMobileApiBaseUrl] = useState("");
   const [mobileAuthToken, setMobileAuthToken] = useState<string | null>(null);
   const [mobileLinkStatus, setMobileLinkStatus] = useState<string | null>(null);
+  const [phoneConfigMode, setPhoneConfigMode] = useState<"auto" | "manual">("auto");
+  const [showPhoneAdvanced, setShowPhoneAdvanced] = useState(false);
+  const [phoneDefaultBaseUrl, setPhoneDefaultBaseUrl] = useState("");
+  const [phoneDefaultApiBaseUrl, setPhoneDefaultApiBaseUrl] = useState("");
+  const [phoneManualConfigAllowed, setPhoneManualConfigAllowed] = useState(false);
   const [simulatorFileName, setSimulatorFileName] = useState<string | null>(null);
   const [simulatorLoadState, setSimulatorLoadState] = useState<SimulatorLoadState>("idle");
   const [simulatorError, setSimulatorError] = useState<string | null>(null);
@@ -173,23 +190,49 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("mobileBaseUrl");
-    const storedApi = window.localStorage.getItem("mobileApiBaseUrl");
+    const hostname = window.location.hostname;
+    const localDev = window.location.protocol !== "https:" || isLocalHost(hostname);
     const defaultBase = `${window.location.protocol}//${window.location.host}`;
-    const defaultApi = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
-    setMobileBaseUrl(stored || defaultBase);
-    setMobileApiBaseUrl(storedApi || defaultApi);
+    const defaultApi = process.env.NEXT_PUBLIC_WS_BASE
+      ? normalizeWsBase(process.env.NEXT_PUBLIC_WS_BASE)
+      : `${window.location.protocol === "https:" ? "wss" : "ws"}://${
+          localDev ? `${hostname}:8000` : window.location.host
+        }`;
+    const storedMode = window.localStorage.getItem("phoneConfigMode");
+    const storedBase = window.localStorage.getItem("mobileBaseUrl");
+    const storedApi = window.localStorage.getItem("mobileApiBaseUrl");
+    const manualMode =
+      localDev && storedMode === "manual" && Boolean(storedBase?.trim()) && Boolean(storedApi?.trim());
+
+    setPhoneDefaultBaseUrl(defaultBase);
+    setPhoneDefaultApiBaseUrl(defaultApi);
+    setPhoneManualConfigAllowed(localDev);
+    setPhoneConfigMode(manualMode ? "manual" : "auto");
+    setShowPhoneAdvanced(localDev && manualMode);
+    setMobileBaseUrl(manualMode ? storedBase!.trim() : defaultBase);
+    setMobileApiBaseUrl(manualMode ? normalizeWsBase(storedApi!) : defaultApi);
   }, []);
 
   useEffect(() => {
     if (!mobileBaseUrl) return;
+    if (!phoneManualConfigAllowed || phoneConfigMode !== "manual") return;
     window.localStorage.setItem("mobileBaseUrl", mobileBaseUrl);
-  }, [mobileBaseUrl]);
+  }, [mobileBaseUrl, phoneConfigMode, phoneManualConfigAllowed]);
 
   useEffect(() => {
     if (!mobileApiBaseUrl) return;
+    if (!phoneManualConfigAllowed || phoneConfigMode !== "manual") return;
     window.localStorage.setItem("mobileApiBaseUrl", mobileApiBaseUrl);
-  }, [mobileApiBaseUrl]);
+  }, [mobileApiBaseUrl, phoneConfigMode, phoneManualConfigAllowed]);
+
+  useEffect(() => {
+    if (!phoneManualConfigAllowed) return;
+    window.localStorage.setItem("phoneConfigMode", phoneConfigMode);
+    if (phoneConfigMode === "auto") {
+      window.localStorage.removeItem("mobileBaseUrl");
+      window.localStorage.removeItem("mobileApiBaseUrl");
+    }
+  }, [phoneConfigMode, phoneManualConfigAllowed]);
 
   useEffect(() => {
     simulatorSpeedRef.current = simulatorSpeed;
@@ -836,7 +879,11 @@ export default function HomePage() {
         : true;
   const readyText = courseReady && sourceReady ? "Ready to record" : "Complete setup";
   const mobileLink = mobileAuthToken
-    ? `${mobileBaseUrl.replace(/\/+$/, "")}/mobile?auth=${encodeURIComponent(mobileAuthToken)}&sid=${encodeURIComponent(sessionId)}&cid=${encodeURIComponent(String(selectedCourseId || ""))}&api=${encodeURIComponent(mobileApiBaseUrl)}`
+    ? `${mobileBaseUrl.replace(/\/+$/, "")}/mobile?auth=${encodeURIComponent(mobileAuthToken)}&sid=${encodeURIComponent(sessionId)}&cid=${encodeURIComponent(String(selectedCourseId || ""))}${
+        mobileApiBaseUrl && mobileApiBaseUrl !== phoneDefaultApiBaseUrl
+          ? `&api=${encodeURIComponent(mobileApiBaseUrl)}`
+          : ""
+      }`
     : "";
   const mobileQrUrl = mobileLink
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(mobileLink)}`
@@ -950,25 +997,80 @@ export default function HomePage() {
             <section className="mobile-link-card">
               <div>
                 <h3>Phone Capture Link</h3>
-                <p className="muted">Scan QR on your phone to open lightweight mobile capture.</p>
-                <div className="form-row">
-                  <label>Phone base URL</label>
-                  <input
-                    className="input"
-                    value={mobileBaseUrl}
-                    onChange={(e) => setMobileBaseUrl(e.target.value)}
-                    placeholder="http://10.0.0.188:3000"
-                  />
+                <p className="muted">
+                  {phoneManualConfigAllowed
+                    ? "Scan the QR on your phone. Auto mode uses this deployment by default; local-only tunnel overrides live under Advanced."
+                    : "Scan the QR on your phone. This production deployment already provides the correct secure frontend and backend URLs."}
+                </p>
+                <div className="mobile-link-summary">
+                  <div className="status-card">
+                    <strong>Phone page</strong>
+                    {mobileBaseUrl}
+                  </div>
+                  <div className="status-card">
+                    <strong>Phone websocket</strong>
+                    {mobileApiBaseUrl}
+                  </div>
                 </div>
-                <div className="form-row">
-                  <label>Phone WS base URL (HTTPS)</label>
-                  <input
-                    className="input"
-                    value={mobileApiBaseUrl}
-                    onChange={(e) => setMobileApiBaseUrl(e.target.value)}
-                    placeholder="wss://your-backend-tunnel.trycloudflare.com"
-                  />
-                </div>
+                {phoneManualConfigAllowed && (
+                  <details
+                    className="phone-advanced"
+                    open={showPhoneAdvanced}
+                    onToggle={(event) =>
+                      setShowPhoneAdvanced((event.currentTarget as HTMLDetailsElement).open)
+                    }
+                  >
+                    <summary>Advanced phone setup</summary>
+                    <div className="phone-advanced-body">
+                      <div className="mobile-link-actions">
+                        <button
+                          type="button"
+                          className={phoneConfigMode === "auto" ? "secondary-btn" : "ghost-btn"}
+                          onClick={() => {
+                            setPhoneConfigMode("auto");
+                            setMobileBaseUrl(phoneDefaultBaseUrl);
+                            setMobileApiBaseUrl(phoneDefaultApiBaseUrl);
+                            setMobileLinkStatus("Using current deployment URLs");
+                          }}
+                        >
+                          Use deployment URLs
+                        </button>
+                        <button
+                          type="button"
+                          className={phoneConfigMode === "manual" ? "secondary-btn" : "ghost-btn"}
+                          onClick={() => {
+                            setPhoneConfigMode("manual");
+                            setShowPhoneAdvanced(true);
+                          }}
+                        >
+                          Use manual tunnel URLs
+                        </button>
+                      </div>
+                      {phoneConfigMode === "manual" && (
+                        <>
+                          <div className="form-row">
+                            <label>Phone base URL</label>
+                            <input
+                              className="input"
+                              value={mobileBaseUrl}
+                              onChange={(e) => setMobileBaseUrl(e.target.value)}
+                              placeholder="https://frontend-tunnel.example.com"
+                            />
+                          </div>
+                          <div className="form-row">
+                            <label>Phone websocket base URL</label>
+                            <input
+                              className="input"
+                              value={mobileApiBaseUrl}
+                              onChange={(e) => setMobileApiBaseUrl(normalizeWsBase(e.target.value))}
+                              placeholder="wss://backend-tunnel.example.com"
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </details>
+                )}
                 <div className="mobile-link-actions">
                   <button type="button" className="secondary-btn" onClick={refreshMobileLink}>
                     Refresh QR
@@ -981,6 +1083,11 @@ export default function HomePage() {
                     >
                       Copy Link
                     </button>
+                  )}
+                  {mobileLink && (
+                    <a className="ghost-btn" href={mobileLink} target="_blank" rel="noreferrer">
+                      Open Link
+                    </a>
                   )}
                 </div>
                 {mobileLink && <div className="mobile-link-text">{mobileLink}</div>}
