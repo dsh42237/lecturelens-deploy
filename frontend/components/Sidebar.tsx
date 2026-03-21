@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -15,7 +16,16 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-brand">LectureLens</div>
+      <div className="sidebar-brand-wrap">
+        <Image
+          src="/Logo.jpeg"
+          alt="LectureLens logo"
+          width={40}
+          height={40}
+          className="sidebar-logo"
+        />
+        <div className="sidebar-brand">LectureLens</div>
+      </div>
       <nav className="sidebar-nav">
         {navItems.map((item) => {
           const active = pathname === item.href;

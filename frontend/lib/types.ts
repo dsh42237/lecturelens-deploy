@@ -1,5 +1,6 @@
 export type EventType =
   | "status"
+  | "simulator_progress"
   | "transcript_partial"
   | "transcript_final"
   | "notes_delta"
@@ -22,6 +23,10 @@ export interface EventEnvelope<TPayload = unknown> {
 
 export interface StatusPayload {
   message: string;
+}
+
+export interface SimulatorProgressPayload {
+  processedMs: number;
 }
 
 export interface ErrorPayload {

@@ -139,12 +139,15 @@ def build_live_prompt(transcript: str, prev_state: dict[str, Any] | None = None)
     )
 
 
-def build_final_prompt(transcript: str) -> str:
+def build_final_prompt(transcript: str, student_notes: str = "") -> str:
+    student_notes_block = student_notes.strip() or "(none)"
     return (
         "You are a lecture notes editor. Produce a polished study document.\n"
         "Do NOT copy sentences verbatim; paraphrase and correct transcript errors.\n"
         "Do NOT invent facts. If uncertain, phrase cautiously.\n"
         "Ignore filler/anchors (greetings, names, thanks, sign-offs, housekeeping).\n\n"
+        "If STUDENT_NOTES are provided, treat them as the student's own priorities, confusions, and reminders.\n"
+        "Use them to improve emphasis and examples, but do not elevate claims that contradict the transcript.\n\n"
         "Output MUST be plain text (no JSON, no markdown fences).\n"
         "Structure:\n"
         "- First line: Lecture Notes\n"
@@ -152,5 +155,6 @@ def build_final_prompt(transcript: str) -> str:
         "- Include a Definitions section\n"
         "- Include an Examples section if possible\n"
         "- End with a short Exam takeaways section\n\n"
+        f"STUDENT_NOTES:\n{student_notes_block}\n\n"
         f"TRANSCRIPT:\n{transcript}\n"
     )

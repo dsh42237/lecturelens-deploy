@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 EventType = Literal[
     "status",
+    "simulator_progress",
     "transcript_partial",
     "transcript_final",
     "notes_delta",

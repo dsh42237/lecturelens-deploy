@@ -10,17 +10,30 @@ function getApiBase(): string {
   return FALLBACK_API_BASE;
 }
 
+async function safeFetch(url: string, options: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    const origin = typeof window !== "undefined" ? window.location.origin : "server";
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Network error calling API ${url} (page origin: ${origin}). ` +
+        `Is the backend running and reachable? (Cause: ${cause})`,
+      { cause: err as unknown }
+    );
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${getApiBase()}${path}`,
-    {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {})
-      },
-      credentials: "include"
-    }
-  );
+  const url = `${getApiBase()}${path}`;
+  const res = await safeFetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
+    credentials: "include"
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || res.statusText);
@@ -70,6 +83,7 @@ export interface SessionInfo {
   started_at: string;
   ended_at?: string | null;
   final_notes_text?: string | null;
+  student_notes_text?: string | null;
   live_notes_history?: { timestamp: number; notes: Record<string, unknown> }[];
 }
 
@@ -106,7 +120,8 @@ export async function logout() {
 }
 
 export async function getMe(): Promise<UserInfo | null> {
-  const res = await fetch(`${getApiBase()}/auth/me`, { credentials: "include" });
+  const url = `${getApiBase()}/auth/me`;
+  const res = await safeFetch(url, { credentials: "include" });
   if (res.status === 401) {
     return null;
   }

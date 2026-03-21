@@ -1,5 +1,7 @@
 import json
 import os
+import socket
+import time
 import urllib.request
 import urllib.error
 from typing import Any
@@ -96,7 +98,27 @@ def _extract_openai_text(data: dict[str, Any]) -> str:
     raise ValueError("OpenAI response missing output text")
 
 
-def _request_llm_text(prompt: str, *, response_format: dict[str, Any] | None = None) -> str:
+def _is_retryable_http_error(status_code: int) -> bool:
+    return status_code in {408, 409, 429, 500, 502, 503, 504}
+
+
+def _is_retryable_exception(exc: Exception) -> bool:
+    if isinstance(exc, urllib.error.HTTPError):
+        return _is_retryable_http_error(exc.code)
+    if isinstance(exc, urllib.error.URLError):
+        return True
+    if isinstance(exc, TimeoutError | socket.timeout):
+        return True
+    return False
+
+
+def _request_llm_text(
+    prompt: str,
+    *,
+    response_format: dict[str, Any] | None = None,
+    timeout_seconds: int = 30,
+    max_retries: int = 0,
+) -> str:
     provider = os.getenv("LLM_PROVIDER", "openai").lower()
 
     if provider == "openai":
@@ -117,21 +139,25 @@ def _request_llm_text(prompt: str, *, response_format: dict[str, Any] | None = N
             "Authorization": f"Bearer {api_key}",
         }
         request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw_json = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", "ignore")
-            if os.getenv("DEBUG_LLM", "0") == "1":
-                preview = body[:200].replace("\n", " ")
-                print(f"[LLM] provider=openai http_error={exc.code} body='{preview}'")
-            raise
-        parsed = json.loads(raw_json)
-        text_response = _extract_openai_text(parsed).strip()
-        if os.getenv("DEBUG_LLM", "0") == "1":
-            preview = text_response[:120].replace("\n", " ")
-            print(f"[LLM] provider=openai model={model} response='{preview}'")
-        return text_response
+        for attempt in range(max_retries + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                    raw_json = response.read().decode("utf-8")
+                parsed = json.loads(raw_json)
+                text_response = _extract_openai_text(parsed).strip()
+                if os.getenv("DEBUG_LLM", "0") == "1":
+                    preview = text_response[:120].replace("\n", " ")
+                    print(f"[LLM] provider=openai model={model} response='{preview}'")
+                return text_response
+            except Exception as exc:
+                if isinstance(exc, urllib.error.HTTPError):
+                    body = exc.read().decode("utf-8", "ignore")
+                    if os.getenv("DEBUG_LLM", "0") == "1":
+                        preview = body[:200].replace("\n", " ")
+                        print(f"[LLM] provider=openai http_error={exc.code} body='{preview}'")
+                if attempt >= max_retries or not _is_retryable_exception(exc):
+                    raise
+                time.sleep(min(4.0, 1.0 + attempt))
 
     if provider == "ollama":
         base = os.getenv("LLM_HTTP_URL", "http://localhost:11434")
@@ -148,17 +174,23 @@ def _request_llm_text(prompt: str, *, response_format: dict[str, Any] | None = N
         headers = {"Content-Type": "application/json"}
 
         request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-        with urllib.request.urlopen(request, timeout=30) as response:
-            raw_json = response.read().decode("utf-8")
-        parsed = json.loads(raw_json)
-        if "response" not in parsed or not isinstance(parsed["response"], str):
-            raise ValueError("Ollama response missing 'response' string")
+        for attempt in range(max_retries + 1):
+            try:
+                with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                    raw_json = response.read().decode("utf-8")
+                parsed = json.loads(raw_json)
+                if "response" not in parsed or not isinstance(parsed["response"], str):
+                    raise ValueError("Ollama response missing 'response' string")
 
-        text_response = parsed["response"].strip()
-        if os.getenv("DEBUG_LLM", "0") == "1":
-            preview = text_response[:120].replace("\n", " ")
-            print(f"[LLM] provider=ollama model={model} response='{preview}'")
-        return text_response
+                text_response = parsed["response"].strip()
+                if os.getenv("DEBUG_LLM", "0") == "1":
+                    preview = text_response[:120].replace("\n", " ")
+                    print(f"[LLM] provider=ollama model={model} response='{preview}'")
+                return text_response
+            except Exception as exc:
+                if attempt >= max_retries or not _is_retryable_exception(exc):
+                    raise
+                time.sleep(min(4.0, 1.0 + attempt))
 
     url = os.getenv("LLM_HTTP_URL")
     if not url:
@@ -177,14 +209,20 @@ def _request_llm_text(prompt: str, *, response_format: dict[str, Any] | None = N
         headers["Authorization"] = auth
 
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=30) as response:
-        raw = response.read().decode("utf-8")
+    for attempt in range(max_retries + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                raw = response.read().decode("utf-8")
+            if os.getenv("DEBUG_LLM", "0") == "1":
+                preview = raw[:120].replace("\n", " ")
+                print(f"[LLM] provider=generic response='{preview}'")
+            return raw
+        except Exception as exc:
+            if attempt >= max_retries or not _is_retryable_exception(exc):
+                raise
+            time.sleep(min(4.0, 1.0 + attempt))
 
-    if os.getenv("DEBUG_LLM", "0") == "1":
-        preview = raw[:120].replace("\n", " ")
-        print(f"[LLM] provider=generic response='{preview}'")
-
-    return raw
+    raise RuntimeError("LLM request failed unexpectedly")
 
 
 def generate_notes_delta(
@@ -241,7 +279,13 @@ def generate_live_notes_json(
     return data
 
 
-def generate_final_notes_text(full_transcript: str) -> str:
-    prompt = build_final_prompt(full_transcript)
-    text_response = _request_llm_text(prompt)
+def generate_final_notes_text(full_transcript: str, student_notes: str = "") -> str:
+    prompt = build_final_prompt(full_transcript, student_notes)
+    timeout_seconds = int(os.getenv("FINAL_NOTES_TIMEOUT_SECONDS", "90"))
+    max_retries = int(os.getenv("FINAL_NOTES_RETRIES", "2"))
+    text_response = _request_llm_text(
+        prompt,
+        timeout_seconds=timeout_seconds,
+        max_retries=max_retries,
+    )
     return text_response.strip()

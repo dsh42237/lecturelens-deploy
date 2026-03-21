@@ -4,6 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import TranscriptPanel from "../../components/TranscriptPanel";
 import LiveNotesPanel from "../../components/LiveNotesPanel";
 import FinalNotesPanel from "../../components/FinalNotesPanel";
+import StudentNotesPanel from "../../components/StudentNotesPanel";
+import SimulatorPanel from "../../components/SimulatorPanel";
+import LoggedOutHome from "../../components/LoggedOutHome";
 import { connectSession } from "../../lib/ws";
 import type {
   AudioFramePayload,
@@ -17,6 +20,18 @@ import { createMobileLink, getMe, listCourses } from "../../lib/api";
 const TARGET_SAMPLE_RATE = 16000;
 const FRAME_SAMPLES = 320; // ~20ms at 16kHz
 const LIVE_NOTES_INTERVAL_SECONDS = 10;
+const SIMULATOR_CHUNK_SECONDS = 2;
+const SIMULATOR_TAIL_SECONDS = 2;
+const SIMULATOR_MAX_AHEAD_SECONDS = 36;
+const SIMULATOR_MAX_BUFFERED_BYTES = 2_000_000;
+
+type CaptureSource = "desktop" | "phone" | "simulator";
+type SimulatorLoadState = "idle" | "loading" | "ready" | "error";
+
+function clampSpeed(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(40, Math.max(1, value));
+}
 
 function generateId(): string {
   const webCrypto = globalThis.crypto;
@@ -41,6 +56,9 @@ function getJwtExpMs(token: string): number | null {
 }
 
 export default function HomePage() {
+  const [authState, setAuthState] = useState<"checking" | "authenticated" | "logged_out">(
+    "checking"
+  );
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
@@ -55,6 +73,8 @@ export default function HomePage() {
   >([]);
   const [selectedLiveNotesId, setSelectedLiveNotesId] = useState<string | null>(null);
   const [finalNotes, setFinalNotes] = useState<FinalNotesPayload | null>(null);
+  const [studentNotes, setStudentNotes] = useState("");
+  const [sessionStartedAck, setSessionStartedAck] = useState(false);
   const [lastLiveNotesUpdate, setLastLiveNotesUpdate] = useState<number | null>(null);
   const [framesSent, setFramesSent] = useState(0);
   const [lastFrameMs, setLastFrameMs] = useState<number | null>(null);
@@ -67,12 +87,19 @@ export default function HomePage() {
   const [courses, setCourses] = useState<{ id: number; course_code: string; course_name: string }[]>([]);
   const [selectedCourseId, setSelectedCourseId] = useState<number | "">("");
   const [courseStatus, setCourseStatus] = useState<string | null>(null);
-  const [captureSource, setCaptureSource] = useState<"desktop" | "phone">("desktop");
+  const [captureSource, setCaptureSource] = useState<CaptureSource>("desktop");
   const [cameraPreviewDataUrl, setCameraPreviewDataUrl] = useState<string | null>(null);
   const [mobileBaseUrl, setMobileBaseUrl] = useState("");
   const [mobileApiBaseUrl, setMobileApiBaseUrl] = useState("");
   const [mobileAuthToken, setMobileAuthToken] = useState<string | null>(null);
   const [mobileLinkStatus, setMobileLinkStatus] = useState<string | null>(null);
+  const [simulatorFileName, setSimulatorFileName] = useState<string | null>(null);
+  const [simulatorLoadState, setSimulatorLoadState] = useState<SimulatorLoadState>("idle");
+  const [simulatorError, setSimulatorError] = useState<string | null>(null);
+  const [simulatorDurationSec, setSimulatorDurationSec] = useState<number | null>(null);
+  const [simulatorProgressSec, setSimulatorProgressSec] = useState(0);
+  const [simulatorSpeed, setSimulatorSpeed] = useState(16);
+  const [simulatorRunning, setSimulatorRunning] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -82,12 +109,40 @@ export default function HomePage() {
     chunks: [],
     length: 0
   });
+  const simulatorSamplesRef = useRef<Float32Array | null>(null);
+  const simulatorOriginalSamplesRef = useRef(0);
+  const simulatorTotalSamplesRef = useRef(0);
+  const simulatorOffsetRef = useRef(0);
+  const simulatorTimerRef = useRef<number | null>(null);
+  const simulatorQueuedStartRef = useRef(false);
+  const simulatorActiveRef = useRef(false);
+  const simulatorSpeedRef = useRef(simulatorSpeed);
+  const simulatorPreparePromiseRef = useRef<Promise<void> | null>(null);
+  const simulatorTokenRef = useRef<string | null>(null);
+  const simulatorProcessedMsRef = useRef(0);
 
   useEffect(() => {
-    const existing = window.localStorage.getItem("desktopSessionId");
-    const id = existing || generateId();
-    window.localStorage.setItem("desktopSessionId", id);
-    setSessionId(id);
+    window.localStorage.removeItem("desktopSessionId");
+    window.localStorage.removeItem("mobileAuthToken");
+    setSessionId(generateId());
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const checkAuth = async () => {
+      try {
+        const me = await getMe();
+        if (!isMounted) return;
+        setAuthState(me ? "authenticated" : "logged_out");
+      } catch {
+        if (!isMounted) return;
+        setAuthState("logged_out");
+      }
+    };
+    checkAuth();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -120,17 +175,10 @@ export default function HomePage() {
   useEffect(() => {
     const stored = window.localStorage.getItem("mobileBaseUrl");
     const storedApi = window.localStorage.getItem("mobileApiBaseUrl");
-    const storedToken = window.localStorage.getItem("mobileAuthToken");
     const defaultBase = `${window.location.protocol}//${window.location.host}`;
     const defaultApi = `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
     setMobileBaseUrl(stored || defaultBase);
     setMobileApiBaseUrl(storedApi || defaultApi);
-    if (storedToken) {
-      const exp = getJwtExpMs(storedToken);
-      if (exp && exp > Date.now() + 30_000) {
-        setMobileAuthToken(storedToken);
-      }
-    }
   }, []);
 
   useEffect(() => {
@@ -144,17 +192,12 @@ export default function HomePage() {
   }, [mobileApiBaseUrl]);
 
   useEffect(() => {
-    if (!sessionId) return;
+    simulatorSpeedRef.current = simulatorSpeed;
+  }, [simulatorSpeed]);
+
+  useEffect(() => {
+    if (!sessionId || authState !== "authenticated") return;
     const loadCourses = async () => {
-      const me = await getMe();
-      if (!me) {
-        setCourses([]);
-        setSelectedCourseId("");
-        setCourseStatus("Login to attach a course");
-        setMobileAuthToken(null);
-        window.localStorage.removeItem("mobileAuthToken");
-        return;
-      }
       try {
         const items = await listCourses();
         setCourses(items);
@@ -165,27 +208,30 @@ export default function HomePage() {
       } catch (err) {
         setCourseStatus(err instanceof Error ? err.message : "Failed to load courses");
       }
-      // Only mint a new mobile token if we don't already have a valid one.
-      if (!mobileAuthToken) {
-        try {
-          const link = await createMobileLink(sessionId);
-          setMobileAuthToken(link.token);
-          window.localStorage.setItem("mobileAuthToken", link.token);
-          setMobileLinkStatus(null);
-        } catch (err) {
-          setMobileLinkStatus(err instanceof Error ? err.message : "Failed to generate mobile link");
-        }
+      try {
+        const link = await createMobileLink(sessionId);
+        setMobileAuthToken(link.token);
+        setMobileLinkStatus(null);
+      } catch (err) {
+        setMobileLinkStatus(err instanceof Error ? err.message : "Failed to generate mobile link");
       }
     };
     loadCourses();
-  }, [mobileAuthToken, sessionId]);
+  }, [authState, sessionId]);
+
+  useEffect(() => {
+    if (authState !== "logged_out") return;
+    setCourses([]);
+    setSelectedCourseId("");
+    setCourseStatus("Login to attach a course");
+    setMobileAuthToken(null);
+  }, [authState]);
 
   const refreshMobileLink = async () => {
     if (!sessionId) return;
     try {
       const link = await createMobileLink(sessionId);
       setMobileAuthToken(link.token);
-      window.localStorage.setItem("mobileAuthToken", link.token);
       setMobileLinkStatus("Mobile link refreshed");
     } catch (err) {
       setMobileLinkStatus(err instanceof Error ? err.message : "Failed to refresh mobile link");
@@ -201,11 +247,16 @@ export default function HomePage() {
         setConnected(true);
         setWsStatus("open");
         setIsStopping(false);
+        setSessionStartedAck(false);
         const startMessage = {
           type: "start_session",
           sessionId,
           timestamp: Date.now(),
-          payload: selectedCourseId ? { courseId: selectedCourseId } : {}
+          payload: {
+            ...(selectedCourseId ? { courseId: selectedCourseId } : {}),
+            captureSource,
+            simulationSpeed: captureSource === "simulator" ? simulatorSpeedRef.current : 1
+          }
         };
         connection.socket.send(JSON.stringify(startMessage));
       },
@@ -214,12 +265,32 @@ export default function HomePage() {
         setWsStatus("closed");
         setIsSessionRunning(false);
         setIsStopping(false);
+        setMobileAuthToken(null);
+        setSessionStartedAck(false);
+        simulatorActiveRef.current = false;
+        if (simulatorTimerRef.current !== null) {
+          window.clearTimeout(simulatorTimerRef.current);
+          simulatorTimerRef.current = null;
+        }
+        setSimulatorRunning(false);
+        setSessionId(generateId());
         if (event) {
           setStatus(`ws closed (${event.code})`);
           console.log("[WS] closed", event.code, event.reason);
         }
       },
-      onStatus: (event) => setStatus(event.payload.message),
+      onStatus: (event) => {
+        setStatus(event.payload.message);
+        if (event.payload.message === "session started") {
+          setSessionStartedAck(true);
+        }
+        if (event.payload.message === "session stopped") {
+          setSessionStartedAck(false);
+        }
+      },
+      onSimulatorProgress: (event) => {
+        simulatorProcessedMsRef.current = event.payload.processedMs;
+      },
       onTranscriptPartial: (event) => {
         setPartialLine({ id: event.payload.lineId, text: event.payload.text });
       },
@@ -264,6 +335,195 @@ export default function HomePage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, isSessionRunning, captureSource, selectedCourseId]);
+
+  const stopSimulatorStreaming = () => {
+    simulatorQueuedStartRef.current = false;
+    simulatorActiveRef.current = false;
+    if (simulatorTimerRef.current !== null) {
+      window.clearTimeout(simulatorTimerRef.current);
+      simulatorTimerRef.current = null;
+    }
+    setSimulatorRunning(false);
+  };
+
+  const buildMonoSamples = (buffer: AudioBuffer) => {
+    if (buffer.numberOfChannels === 1) {
+      return new Float32Array(buffer.getChannelData(0));
+    }
+
+    const mono = new Float32Array(buffer.length);
+    const channelWeight = 1 / buffer.numberOfChannels;
+    for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+      const source = buffer.getChannelData(channel);
+      for (let index = 0; index < source.length; index += 1) {
+        mono[index] += source[index] * channelWeight;
+      }
+    }
+    return mono;
+  };
+
+  const prepareSimulatorFile = async (file: File | null) => {
+    stopSimulatorStreaming();
+    simulatorSamplesRef.current = null;
+    simulatorOriginalSamplesRef.current = 0;
+    simulatorTotalSamplesRef.current = 0;
+    simulatorOffsetRef.current = 0;
+    simulatorProcessedMsRef.current = 0;
+    setSimulatorProgressSec(0);
+    setSimulatorError(null);
+
+    if (!file) {
+      simulatorTokenRef.current = null;
+      setSimulatorFileName(null);
+      setSimulatorDurationSec(null);
+      setSimulatorLoadState("idle");
+      return;
+    }
+
+    const token = `${file.name}:${file.size}:${file.lastModified}`;
+    simulatorTokenRef.current = token;
+    setSimulatorFileName(file.name);
+    setSimulatorDurationSec(null);
+    setSimulatorLoadState("loading");
+
+    const promise = (async () => {
+      const fileBuffer = await file.arrayBuffer();
+      const decodeContext = new AudioContext();
+      try {
+        const decoded = await decodeContext.decodeAudioData(fileBuffer.slice(0));
+        const mono = buildMonoSamples(decoded);
+        const resampled = resampleLinear(mono, decoded.sampleRate, TARGET_SAMPLE_RATE);
+        if (simulatorTokenRef.current !== token) {
+          return;
+        }
+        simulatorSamplesRef.current = resampled;
+        simulatorOriginalSamplesRef.current = resampled.length;
+        simulatorTotalSamplesRef.current =
+          resampled.length + TARGET_SAMPLE_RATE * SIMULATOR_TAIL_SECONDS;
+        setSimulatorDurationSec(resampled.length / TARGET_SAMPLE_RATE);
+        setSimulatorLoadState("ready");
+      } finally {
+        await decodeContext.close();
+      }
+    })();
+
+    simulatorPreparePromiseRef.current = promise;
+    try {
+      await promise;
+    } catch (error) {
+      if (simulatorTokenRef.current !== token) {
+        return;
+      }
+      simulatorSamplesRef.current = null;
+      simulatorOriginalSamplesRef.current = 0;
+      simulatorTotalSamplesRef.current = 0;
+      setSimulatorDurationSec(null);
+      setSimulatorLoadState("error");
+      setSimulatorError(
+        error instanceof Error ? error.message : "Failed to decode simulator audio"
+      );
+    } finally {
+      if (simulatorPreparePromiseRef.current === promise) {
+        simulatorPreparePromiseRef.current = null;
+      }
+    }
+  };
+
+  const sendSimulatorChunk = () => {
+    if (!simulatorActiveRef.current) return;
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, 200);
+      return;
+    }
+
+    const samples = simulatorSamplesRef.current;
+    const totalSamples = simulatorTotalSamplesRef.current;
+    const originalSamples = simulatorOriginalSamplesRef.current;
+    const chunkSize = TARGET_SAMPLE_RATE * SIMULATOR_CHUNK_SECONDS;
+    const start = simulatorOffsetRef.current;
+    const sentLectureSec = start / TARGET_SAMPLE_RATE;
+    const processedLectureSec = simulatorProcessedMsRef.current / 1000;
+    if (sentLectureSec - processedLectureSec > SIMULATOR_MAX_AHEAD_SECONDS) {
+      simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, 120);
+      return;
+    }
+    if (socket.bufferedAmount > SIMULATOR_MAX_BUFFERED_BYTES) {
+      simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, 120);
+      return;
+    }
+
+    if (!samples || start >= totalSamples) {
+      stopSimulatorStreaming();
+      setSimulatorProgressSec(originalSamples / TARGET_SAMPLE_RATE);
+      setStatus("Simulator upload completed. Finalizing notes...");
+      stopSession();
+      return;
+    }
+
+    const end = Math.min(start + chunkSize, totalSamples);
+    const chunk = new Float32Array(end - start);
+    if (start < originalSamples) {
+      const sourceEnd = Math.min(end, originalSamples);
+      chunk.set(samples.subarray(start, sourceEnd), 0);
+    }
+
+    sendAudioFrame(chunk);
+    simulatorOffsetRef.current = end;
+    setSimulatorProgressSec(Math.min(end, originalSamples) / TARGET_SAMPLE_RATE);
+
+    if (end >= totalSamples) {
+      stopSimulatorStreaming();
+      setSimulatorProgressSec(originalSamples / TARGET_SAMPLE_RATE);
+      setStatus("Simulator upload completed. Finalizing notes...");
+      stopSession();
+      return;
+    }
+
+    const delayMs = (SIMULATOR_CHUNK_SECONDS * 1000) / simulatorSpeedRef.current;
+    simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, delayMs);
+  };
+
+  const startSimulatorStreaming = async () => {
+    if (simulatorPreparePromiseRef.current) {
+      setStatus("Preparing simulator audio...");
+      try {
+        await simulatorPreparePromiseRef.current;
+      } catch {
+        stopSession();
+        return;
+      }
+    }
+
+    if (!simulatorSamplesRef.current || simulatorOriginalSamplesRef.current === 0) {
+      setSimulatorError("Upload a valid audio lecture before starting the simulator");
+      setSimulatorLoadState("error");
+      stopSession();
+      return;
+    }
+
+    simulatorOffsetRef.current = 0;
+    setSimulatorProgressSec(0);
+    simulatorActiveRef.current = true;
+    setSimulatorRunning(true);
+    setStatus(`Simulator streaming at ${simulatorSpeedRef.current.toFixed(1)}x`);
+    sendSimulatorChunk();
+  };
+
+  useEffect(() => {
+    if (
+      captureSource !== "simulator" ||
+      !isSessionRunning ||
+      !sessionStartedAck ||
+      !simulatorQueuedStartRef.current
+    ) {
+      return;
+    }
+
+    simulatorQueuedStartRef.current = false;
+    void startSimulatorStreaming();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captureSource, isSessionRunning, sessionStartedAck]);
 
   const encodeFloat32 = (audio: Float32Array) => {
     const bytes = new Uint8Array(audio.buffer, audio.byteOffset, audio.byteLength);
@@ -450,6 +710,7 @@ export default function HomePage() {
     const start = async () => {
       try {
         setIsStopping(false);
+        setSessionStartedAck(false);
         setLiveNotes(null);
         setFinalNotes(null);
         setLastLiveNotesUpdate(null);
@@ -457,8 +718,22 @@ export default function HomePage() {
         setSelectedLiveNotesId(null);
         setLines([]);
         setPartialLine(null);
+        setFramesSent(0);
+        setLastFrameMs(null);
+        setSimulatorProgressSec(0);
+        simulatorProcessedMsRef.current = 0;
+        setSimulatorError(null);
+        stopSimulatorStreaming();
         if (captureSource === "desktop") {
           await requestMicAndStartStreaming();
+        } else if (captureSource === "simulator") {
+          if (!simulatorFileName) {
+            throw new Error("Upload an audio lecture before starting the simulator");
+          }
+          setMicActive(false);
+          setMicError(null);
+          setStatus("Session starting. Simulator will begin after websocket setup.");
+          simulatorQueuedStartRef.current = true;
         } else {
           setMicActive(false);
           setMicError(null);
@@ -467,8 +742,12 @@ export default function HomePage() {
         setIsSessionRunning(true);
       } catch (error) {
         const message =
-          error instanceof Error ? `${error.name}: ${error.message}` : "Failed to access microphone";
-        setMicError(message);
+          error instanceof Error ? `${error.name}: ${error.message}` : "Failed to start session";
+        if (captureSource === "simulator") {
+          setSimulatorError(message);
+        } else {
+          setMicError(message);
+        }
         setStatus(message);
         stopSession();
       }
@@ -478,6 +757,7 @@ export default function HomePage() {
   };
 
   const stopSession = () => {
+    stopSimulatorStreaming();
     stopAudioPipeline();
     if (mediaStream) {
       mediaStream.getTracks().forEach((track) => track.stop());
@@ -494,7 +774,9 @@ export default function HomePage() {
         type: "stop_session",
         sessionId,
         timestamp: Date.now(),
-        payload: {}
+        payload: {
+          studentNotes
+        }
       };
       socket.send(JSON.stringify(stopMessage));
       if (captureSource === "phone") {
@@ -525,27 +807,33 @@ export default function HomePage() {
     await startAudioPipeline(stream);
   };
 
-  if (!sessionId) {
+  if (!sessionId || authState === "checking") {
     return (
-      <AppLayout>
-        <main>
-          <div className="app-shell">
-            <div className="header-card">
-              <div className="brand">
-                <h1>LectureLens</h1>
-                <p>Preparing your session...</p>
-              </div>
-            </div>
-          </div>
-        </main>
-      </AppLayout>
+      <main className="landing-shell">
+        <div className="landing-container">
+          <section className="landing-hero">
+            <p className="landing-kicker">LectureLens</p>
+            <h1>Preparing your workspace...</h1>
+            <p>Checking account status and loading your session context.</p>
+          </section>
+        </div>
+      </main>
     );
+  }
+
+  if (authState === "logged_out") {
+    return <LoggedOutHome />;
   }
 
   const selectedCourse = courses.find((course) => course.id === selectedCourseId);
   const courseReady = Boolean(selectedCourseId);
   const micReady = permissionState === "granted";
-  const sourceReady = captureSource === "desktop" ? micReady : true;
+  const sourceReady =
+    captureSource === "desktop"
+      ? micReady
+      : captureSource === "simulator"
+        ? simulatorLoadState === "ready"
+        : true;
   const readyText = courseReady && sourceReady ? "Ready to record" : "Complete setup";
   const mobileLink = mobileAuthToken
     ? `${mobileBaseUrl.replace(/\/+$/, "")}/mobile?auth=${encodeURIComponent(mobileAuthToken)}&sid=${encodeURIComponent(sessionId)}&cid=${encodeURIComponent(String(selectedCourseId || ""))}&api=${encodeURIComponent(mobileApiBaseUrl)}`
@@ -606,14 +894,22 @@ export default function HomePage() {
                     )}
                   </div>
                   <div className="setup-card">
-                    <div className="setup-title">Mic</div>
+                    <div className="setup-title">Capture</div>
                     <div className="setup-caption">
-                      {micLabel} · {micActive ? "Active" : "Inactive"}
+                      {captureSource === "desktop"
+                        ? `${micLabel} · ${micActive ? "Active" : "Inactive"}`
+                        : captureSource === "simulator"
+                          ? `${simulatorFileName ?? "No file"} · ${simulatorRunning ? "Streaming" : "Idle"}`
+                          : "Phone mic/camera · Remote"}
                     </div>
                     <ul className="checklist">
                       <li className={courseReady ? "ok" : ""}>Course selected</li>
                       <li className={sourceReady ? "ok" : ""}>
-                        {captureSource === "desktop" ? "Mic permission" : "Phone capture selected"}
+                        {captureSource === "desktop"
+                          ? "Mic permission"
+                          : captureSource === "simulator"
+                            ? "Simulator file loaded"
+                            : "Phone capture selected"}
                       </li>
                       <li className={wsStatus === "open" ? "ok" : ""}>WebSocket connected</li>
                     </ul>
@@ -622,17 +918,18 @@ export default function HomePage() {
                       <select
                         className="input"
                         value={captureSource}
-                        onChange={(e) => setCaptureSource(e.target.value as "desktop" | "phone")}
+                        onChange={(e) => setCaptureSource(e.target.value as CaptureSource)}
                         disabled={isSessionRunning}
                       >
                         <option value="desktop">Desktop mic</option>
                         <option value="phone">Phone mic/camera</option>
+                        <option value="simulator">Audio simulator</option>
                       </select>
                     </div>
                   </div>
                 </div>
                 <div className="setup-actions">
-                  <div className={`ready-pill ${courseReady && micReady ? "ready" : ""}`}>
+                  <div className={`ready-pill ${courseReady && sourceReady ? "ready" : ""}`}>
                     {readyText}
                   </div>
                   <button
@@ -715,6 +1012,22 @@ export default function HomePage() {
             </section>
           )}
 
+          {captureSource === "simulator" && (
+            <SimulatorPanel
+              fileName={simulatorFileName}
+              loadState={simulatorLoadState}
+              error={simulatorError}
+              durationSec={simulatorDurationSec}
+              progressSec={simulatorProgressSec}
+              speed={simulatorSpeed}
+              isRunning={simulatorRunning}
+              onSpeedChange={(value) => setSimulatorSpeed(clampSpeed(value))}
+              onFileChange={(file) => {
+                void prepareSimulatorFile(file);
+              }}
+            />
+          )}
+
           <section className="content-grid">
             <div className="panel-card">
               <TranscriptPanel lines={lines} partialLine={partialLine} />
@@ -729,6 +1042,14 @@ export default function HomePage() {
             </div>
             <div className="panel-card">
               <FinalNotesPanel notes={finalNotes} />
+            </div>
+            <div className="panel-card">
+              <StudentNotesPanel
+                value={studentNotes}
+                onChange={setStudentNotes}
+                onClear={() => setStudentNotes("")}
+                disabled={isStopping}
+              />
             </div>
           </section>
         </div>

@@ -12,6 +12,7 @@ interface SessionItem {
   started_at: string;
   ended_at?: string | null;
   final_notes_text?: string | null;
+  student_notes_text?: string | null;
   live_notes_history?: { timestamp: number; notes: LiveNotesSnapshot }[];
 }
 
@@ -205,6 +206,12 @@ export default function SessionsPage() {
                     )}
                     {session.final_notes_text && (
                       <pre className="context-inline">{session.final_notes_text}</pre>
+                    )}
+                    {session.student_notes_text && (
+                      <details className="session-notes-details">
+                        <summary>Student notes</summary>
+                        <pre className="context-inline">{session.student_notes_text}</pre>
+                      </details>
                     )}
                   </div>
                 ))}

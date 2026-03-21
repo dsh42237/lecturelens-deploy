@@ -63,4 +63,5 @@ class SessionOut(BaseModel):
     started_at: str
     ended_at: Optional[str] = None
     final_notes_text: Optional[str] = None
+    student_notes_text: Optional[str] = None
     live_notes_history: list[dict[str, Any]] = Field(default_factory=list)

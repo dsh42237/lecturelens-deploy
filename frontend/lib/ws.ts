@@ -4,6 +4,7 @@ import {
   FinalNotesPayload,
   LiveNotesPayload,
   NotesDeltaPayload,
+  SimulatorProgressPayload,
   StatusPayload,
   TranscriptFinalPayload,
   TranscriptPartialPayload
@@ -23,6 +24,7 @@ function resolveWsBase(): string {
 
 export interface WSHandlers {
   onStatus?: (event: EventEnvelope<StatusPayload>) => void;
+  onSimulatorProgress?: (event: EventEnvelope<SimulatorProgressPayload>) => void;
   onTranscriptPartial?: (event: EventEnvelope<TranscriptPartialPayload>) => void;
   onTranscriptFinal?: (event: EventEnvelope<TranscriptFinalPayload>) => void;
   onNotesDelta?: (event: EventEnvelope<NotesDeltaPayload>) => void;
@@ -64,6 +66,9 @@ export function connectSession(sessionId: string, handlers: WSHandlers, options:
       switch (parsed.type) {
         case "status":
           handlers.onStatus?.(parsed as EventEnvelope<StatusPayload>);
+          break;
+        case "simulator_progress":
+          handlers.onSimulatorProgress?.(parsed as EventEnvelope<SimulatorProgressPayload>);
           break;
         case "transcript_partial":
           handlers.onTranscriptPartial?.(parsed as EventEnvelope<TranscriptPartialPayload>);

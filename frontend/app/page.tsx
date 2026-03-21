@@ -1,5 +1,5 @@
-import LandingPage from "../components/LandingPage";
+import LoggedOutHome from "../components/LoggedOutHome";
 
 export default function Home() {
-  return <LandingPage />;
+  return <LoggedOutHome />;
 }

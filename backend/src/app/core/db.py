@@ -115,3 +115,9 @@ def init_db() -> None:
             )
             """
         )
+        cursor.execute(
+            "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_notes_text TEXT"
+        )
+        cursor.execute(
+            "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS live_notes_history TEXT"
+        )

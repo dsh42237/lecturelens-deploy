@@ -54,6 +54,7 @@ MIN_TIME_FALLBACK_CHARS = int(os.getenv("MIN_TIME_FALLBACK_CHARS", "250"))
 MEMORY_MAX_CHARS = int(os.getenv("MEMORY_MAX_CHARS", "1200"))
 MAX_LIVE_NOTES_CHARS = int(os.getenv("MAX_LIVE_NOTES_CHARS", "1200"))
 MAX_FINAL_TRANSCRIPT_CHARS = int(os.getenv("MAX_FINAL_TRANSCRIPT_CHARS", "12000"))
+MAX_STUDENT_NOTES_CHARS = int(os.getenv("MAX_STUDENT_NOTES_CHARS", "4000"))
 LLM_EVERY_N_BATCHES = int(os.getenv("LLM_EVERY_N_BATCHES", "2"))
 DISABLE_RULES = os.getenv("DISABLE_RULES", "0") == "1"
 
@@ -63,6 +64,8 @@ class SessionState:
     running: bool = False
     user_id: int | None = None
     course_id: int | None = None
+    capture_source: str = "desktop"
+    playback_speed: float = 1.0
     vad_iterator: Any = None
     ring: deque[np.ndarray] = field(default_factory=deque)
     ring_samples: int = 0
@@ -90,8 +93,14 @@ class SessionState:
     final_notes_ready: bool = False
     transcript_full_buffer: str = ""
     live_notes_pending_text: str = ""
+    processed_audio_ms: int = 0
+    last_live_notes_audio_ms: int = 0
+    last_progress_event_audio_ms: int = 0
+    live_notes_audio_interval_ms: int = LIVE_NOTES_INTERVAL_SECONDS * 1000
+    max_speech_ms: int = MAX_SPEECH_MS
     last_not_started_notice_ts: float = 0.0
     mobile_attached: bool = False
+    student_notes_text: str = ""
 
 
 def reset_state(state: SessionState) -> None:
@@ -121,7 +130,15 @@ def reset_state(state: SessionState) -> None:
     state.final_notes_ready = False
     state.transcript_full_buffer = ""
     state.live_notes_pending_text = ""
+    state.processed_audio_ms = 0
+    state.last_live_notes_audio_ms = 0
+    state.last_progress_event_audio_ms = 0
+    state.live_notes_audio_interval_ms = LIVE_NOTES_INTERVAL_SECONDS * 1000
+    state.max_speech_ms = MAX_SPEECH_MS
     state.course_id = None
+    state.capture_source = "desktop"
+    state.playback_speed = 1.0
+    state.student_notes_text = ""
     if state.vad_iterator is not None and hasattr(state.vad_iterator, "reset_states"):
         state.vad_iterator.reset_states()
 
@@ -218,7 +235,7 @@ def process_vad_chunk(state: SessionState, chunk: np.ndarray) -> Optional[np.nda
     if isinstance(vad_event, dict) and "end" in vad_event:
         return finalize_speech(state)
 
-    max_speech_samples = int((MAX_SPEECH_MS / 1000) * TARGET_SAMPLE_RATE)
+    max_speech_samples = int((state.max_speech_ms / 1000) * TARGET_SAMPLE_RATE)
     if state.in_speech and state.speech_samples >= max_speech_samples:
         return finalize_speech(state)
 
@@ -638,12 +655,18 @@ async def broadcast_session_event(session_id: str, payload: dict) -> bool:
     return ok_any
 
 
-def build_final_fallback_notes(transcript: str) -> str:
-    sentences = [s.strip() for s in re.split(r"[.!?]+", transcript) if s.strip()]
-    topic_title, bullets, _terms, _questions, definitions, _steps = build_notes_summary(transcript)
+def build_final_fallback_notes(transcript: str, student_notes: str = "") -> str:
+    combined_source = transcript.strip() or student_notes.strip()
+    sentences = [s.strip() for s in re.split(r"[.!?]+", combined_source) if s.strip()]
+    topic_title, bullets, _terms, _questions, definitions, _steps = build_notes_summary(combined_source)
     lines = ["Lecture Notes", "", "Overview", f"- Topic focus: {topic_title}"]
     for bullet in bullets[:6]:
         lines.append(f"- {bullet}")
+    if student_notes.strip():
+        lines.append("")
+        lines.append("Student notes")
+        for note_line in [line.strip() for line in student_notes.splitlines() if line.strip()][:8]:
+            lines.append(f"- {note_line}")
     if definitions:
         lines.append("")
         lines.append("Definitions")
@@ -677,6 +700,95 @@ def persist_live_notes_history(state: SessionState, session_id: str) -> None:
             )
 
 
+def configure_session_mode(state: SessionState, capture_source: str, playback_speed: float) -> None:
+    normalized_source = capture_source if capture_source in {"desktop", "phone", "simulator"} else "desktop"
+    normalized_speed = playback_speed if playback_speed > 0 else 1.0
+    state.capture_source = normalized_source
+    state.playback_speed = normalized_speed
+    if normalized_source == "simulator":
+        state.max_speech_ms = 8000
+        state.live_notes_audio_interval_ms = min(
+            60000, max(10000, int(4000 * normalized_speed))
+        )
+    else:
+        state.max_speech_ms = MAX_SPEECH_MS
+        state.live_notes_audio_interval_ms = LIVE_NOTES_INTERVAL_SECONDS * 1000
+
+
+def record_transcript_text(state: SessionState, session_id: str, text: str) -> None:
+    state.transcript.append((int(time.time() * 1000), text))
+    state.transcript_full_buffer = f"{state.transcript_full_buffer} {text}".strip()
+    if len(state.transcript_full_buffer) > MAX_FINAL_TRANSCRIPT_CHARS:
+        state.transcript_full_buffer = state.transcript_full_buffer[-MAX_FINAL_TRANSCRIPT_CHARS:]
+    shared_buffer = f"{SESSION_TRANSCRIPT_BUFFER.get(session_id, '')} {text}".strip()
+    if len(shared_buffer) > MAX_FINAL_TRANSCRIPT_CHARS:
+        shared_buffer = shared_buffer[-MAX_FINAL_TRANSCRIPT_CHARS:]
+    SESSION_TRANSCRIPT_BUFFER[session_id] = shared_buffer
+    if not is_filler_line(text):
+        state.live_notes_pending_text = f"{state.live_notes_pending_text} {text}".strip()
+        SESSION_LIVE_PENDING[session_id] = f"{SESSION_LIVE_PENDING.get(session_id, '')} {text}".strip()
+
+
+async def transcribe_segment(
+    segment: np.ndarray,
+    session_id: str,
+    safe_send: Callable[[dict], Awaitable[bool]],
+    state: SessionState,
+) -> None:
+    if segment.size == 0:
+        return
+    segment_ms = int((segment.size / TARGET_SAMPLE_RATE) * 1000)
+    text = transcribe(segment, TARGET_SAMPLE_RATE)
+    transcript_payload = {"text": text, "source": "whisper", "segmentMs": segment_ms}
+    await safe_send(build_event("transcript_final", session_id, transcript_payload).model_dump())
+
+    if text:
+        record_transcript_text(state, session_id, text)
+
+
+async def flush_session_audio(
+    state: SessionState,
+    session_id: str,
+    safe_send: Callable[[dict], Awaitable[bool]],
+) -> None:
+    if state.pending.size > 0 and state.in_speech:
+        state.speech_chunks.append(state.pending.astype(np.float32, copy=False))
+        state.speech_samples += int(state.pending.size)
+        state.pending = np.zeros(0, dtype=np.float32)
+
+    segment: Optional[np.ndarray] = None
+    if state.in_speech and state.speech_samples > 0:
+        segment = finalize_speech(state)
+    elif state.pending.size >= TARGET_SAMPLE_RATE // 2:
+        segment = state.pending.astype(np.float32, copy=False)
+        state.pending = np.zeros(0, dtype=np.float32)
+    else:
+        state.pending = np.zeros(0, dtype=np.float32)
+
+    if segment is not None and segment.size > 0:
+        await transcribe_segment(segment, session_id, safe_send, state)
+
+
+async def maybe_emit_simulator_progress(
+    state: SessionState,
+    session_id: str,
+    safe_send: Callable[[dict], Awaitable[bool]],
+    force: bool = False,
+) -> None:
+    if state.capture_source != "simulator":
+        return
+    if not force and state.processed_audio_ms - state.last_progress_event_audio_ms < 1000:
+        return
+    state.last_progress_event_audio_ms = state.processed_audio_ms
+    await safe_send(
+        build_event(
+            "simulator_progress",
+            session_id,
+            {"processedMs": state.processed_audio_ms},
+        ).model_dump()
+    )
+
+
 @router.websocket("/ws/session/{session_id}")
 async def session_ws(websocket: WebSocket, session_id: str) -> None:
     await websocket.accept()
@@ -698,23 +810,59 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
     state.user_id = get_user_id_from_cookie(websocket)
     live_notes_task: Optional[asyncio.Task] = None
 
+    async def maybe_emit_live_notes(force: bool = False) -> bool:
+        if os.getenv("NOTES_MODE", "llm").lower() != "llm":
+            return True
+        pending = SESSION_LIVE_PENDING.get(session_id, "").strip()
+        if not pending:
+            return True
+        audio_delta = state.processed_audio_ms - state.last_live_notes_audio_ms
+        if not force and audio_delta < state.live_notes_audio_interval_ms:
+            return True
+
+        llm_text = pending[-MAX_LIVE_NOTES_CHARS:]
+        try:
+            live_notes = await asyncio.to_thread(
+                generate_live_notes_json, llm_text, SESSION_LIVE_STATE.get(session_id) or None
+            )
+            SESSION_LIVE_STATE[session_id] = live_notes
+            SESSION_LIVE_PENDING[session_id] = ""
+            state.live_notes_pending_text = ""
+            state.last_live_notes_audio_ms = state.processed_audio_ms
+            history = SESSION_LIVE_HISTORY.setdefault(session_id, [])
+            history.append({"timestamp": int(time.time() * 1000), "notes": live_notes})
+            if len(history) > 80:
+                SESSION_LIVE_HISTORY[session_id] = history[-80:]
+            persist_live_notes_history(state, session_id)
+            return await broadcast(
+                build_event("live_notes_delta", session_id, live_notes).model_dump()
+            )
+        except Exception as exc:
+            if os.getenv("DEBUG_LLM", "0") == "1":
+                print(f"[LLM] live_notes_failed={exc}")
+            return True
+
     async def finalize_and_persist_session(send_final_event: bool) -> None:
         final_text: str | None = None
         transcript_text = SESSION_TRANSCRIPT_BUFFER.get(session_id, "").strip()
+        student_notes_text = state.student_notes_text.strip()
         if not transcript_text:
             transcript_text = state.transcript_full_buffer.strip()
 
-        if transcript_text:
+        if transcript_text or student_notes_text:
             final_input = transcript_text[-MAX_FINAL_TRANSCRIPT_CHARS:]
+            final_student_notes = student_notes_text[:MAX_STUDENT_NOTES_CHARS]
             if os.getenv("NOTES_MODE", "llm").lower() == "llm":
                 try:
-                    final_text = await asyncio.to_thread(generate_final_notes_text, final_input)
+                    final_text = await asyncio.to_thread(
+                        generate_final_notes_text, final_input, final_student_notes
+                    )
                 except Exception as exc:
                     if os.getenv("DEBUG_LLM", "0") == "1":
                         print(f"[LLM] final_notes_failed={exc}")
-                    final_text = build_final_fallback_notes(final_input)
+                    final_text = build_final_fallback_notes(final_input, final_student_notes)
             else:
-                final_text = build_final_fallback_notes(final_input)
+                final_text = build_final_fallback_notes(final_input, final_student_notes)
 
         if final_text:
             state.final_notes_text = final_text
@@ -728,11 +876,12 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
             with get_db() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "UPDATE sessions SET ended_at = %s, final_notes_text = %s, live_notes_history = %s "
+                        "UPDATE sessions SET ended_at = %s, final_notes_text = %s, student_notes_text = %s, live_notes_history = %s "
                         "WHERE id = %s AND user_id = %s",
                         (
                             ended_at,
                             state.final_notes_text or None,
+                            state.student_notes_text or None,
                             json.dumps(history),
                             session_id,
                             state.user_id,
@@ -745,32 +894,10 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
 
     async def live_notes_loop() -> None:
         while state.running:
-            await asyncio.sleep(LIVE_NOTES_INTERVAL_SECONDS)
-            if os.getenv("NOTES_MODE", "llm").lower() != "llm":
-                continue
-            pending = SESSION_LIVE_PENDING.get(session_id, "").strip()
-            if not pending:
-                continue
-            llm_text = pending[-MAX_LIVE_NOTES_CHARS:]
-            try:
-                live_notes = await asyncio.to_thread(
-                    generate_live_notes_json, llm_text, SESSION_LIVE_STATE.get(session_id) or None
-                )
-                SESSION_LIVE_STATE[session_id] = live_notes
-                SESSION_LIVE_PENDING[session_id] = ""
-                history = SESSION_LIVE_HISTORY.setdefault(session_id, [])
-                history.append({"timestamp": int(time.time() * 1000), "notes": live_notes})
-                if len(history) > 80:
-                    SESSION_LIVE_HISTORY[session_id] = history[-80:]
-                persist_live_notes_history(state, session_id)
-                ok = await broadcast(
-                    build_event("live_notes_delta", session_id, live_notes).model_dump()
-                )
-                if not ok:
-                    break
-            except Exception as exc:
-                if os.getenv("DEBUG_LLM", "0") == "1":
-                    print(f"[LLM] live_notes_failed={exc}")
+            await asyncio.sleep(0.5)
+            ok = await maybe_emit_live_notes(force=False)
+            if not ok:
+                break
 
     try:
         while True:
@@ -834,6 +961,18 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                     SESSION_LIVE_HISTORY[session_id] = []
                     state.live_notes_history = SESSION_LIVE_HISTORY[session_id]
 
+                capture_source = payload.get("captureSource")
+                playback_speed_raw = payload.get("simulationSpeed", 1.0)
+                try:
+                    playback_speed = float(playback_speed_raw)
+                except Exception:
+                    playback_speed = 1.0
+                configure_session_mode(
+                    state,
+                    capture_source if isinstance(capture_source, str) else "desktop",
+                    playback_speed,
+                )
+
                 course_id = payload.get("courseId")
                 if isinstance(course_id, int):
                     state.course_id = course_id
@@ -859,14 +998,15 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                             started_at = datetime.utcnow().isoformat()
                             cur.execute(
                                 "INSERT INTO sessions "
-                                "(id, user_id, course_id, started_at, ended_at, final_notes_text, live_notes_history) "
-                                "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+                                "(id, user_id, course_id, started_at, ended_at, final_notes_text, student_notes_text, live_notes_history) "
+                                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
                                 "ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id",
                                 (
                                     session_id,
                                     state.user_id,
                                     state.course_id,
                                     started_at,
+                                    None,
                                     None,
                                     None,
                                     "[]",
@@ -881,6 +1021,16 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                 continue
 
             if message_type == "stop_session":
+                payload = data.get("payload") or {}
+                student_notes = payload.get("studentNotes")
+                if isinstance(student_notes, str):
+                    state.student_notes_text = student_notes.strip()
+                await safe_send(
+                    build_event("status", session_id, {"message": "finalizing session"}).model_dump()
+                )
+                await flush_session_audio(state, session_id, broadcast)
+                await maybe_emit_simulator_progress(state, session_id, broadcast, force=True)
+                await maybe_emit_live_notes(force=True)
                 state.running = False
                 SESSION_RUNNING[session_id] = False
                 await finalize_and_persist_session(send_final_event=True)
@@ -959,6 +1109,9 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
         unregister_client(session_id, websocket)
         if SESSION_RUNNING.get(session_id, False):
             if not SESSION_CLIENTS.get(session_id):
+                await flush_session_audio(state, session_id, broadcast)
+                await maybe_emit_simulator_progress(state, session_id, broadcast, force=True)
+                await maybe_emit_live_notes(force=True)
                 state.running = False
                 SESSION_RUNNING[session_id] = False
                 await finalize_and_persist_session(send_final_event=False)
@@ -1009,28 +1162,15 @@ async def handle_audio_frame(
     while offset + VAD_FRAME_SAMPLES <= audio_np.size:
         chunk = audio_np[offset : offset + VAD_FRAME_SAMPLES]
         offset += VAD_FRAME_SAMPLES
+        state.processed_audio_ms += int((chunk.size / TARGET_SAMPLE_RATE) * 1000)
 
         segment = process_vad_chunk(state, chunk)
         if segment is None or segment.size == 0:
             continue
 
-        segment_ms = int((segment.size / TARGET_SAMPLE_RATE) * 1000)
-        text = transcribe(segment, TARGET_SAMPLE_RATE)
-        transcript_payload = {"text": text, "source": "whisper", "segmentMs": segment_ms}
-        await safe_send(build_event("transcript_final", session_id, transcript_payload).model_dump())
+        await transcribe_segment(segment, session_id, safe_send, state)
 
-        if text:
-            state.transcript.append((int(time.time() * 1000), text))
-            state.transcript_full_buffer = f"{state.transcript_full_buffer} {text}".strip()
-            if len(state.transcript_full_buffer) > MAX_FINAL_TRANSCRIPT_CHARS:
-                state.transcript_full_buffer = state.transcript_full_buffer[-MAX_FINAL_TRANSCRIPT_CHARS:]
-            shared_buffer = f"{SESSION_TRANSCRIPT_BUFFER.get(session_id, '')} {text}".strip()
-            if len(shared_buffer) > MAX_FINAL_TRANSCRIPT_CHARS:
-                shared_buffer = shared_buffer[-MAX_FINAL_TRANSCRIPT_CHARS:]
-            SESSION_TRANSCRIPT_BUFFER[session_id] = shared_buffer
-            if not is_filler_line(text):
-                state.live_notes_pending_text = f"{state.live_notes_pending_text} {text}".strip()
-                SESSION_LIVE_PENDING[session_id] = f"{SESSION_LIVE_PENDING.get(session_id, '')} {text}".strip()
+    await maybe_emit_simulator_progress(state, session_id, safe_send)
 
     if offset < audio_np.size:
         state.pending = audio_np[offset:].astype(np.float32, copy=False)
