@@ -223,6 +223,8 @@ def _init_postgres() -> None:
         )
         cursor.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS student_notes_text TEXT")
         cursor.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS live_notes_history TEXT")
+        cursor.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS transcript_text TEXT")
+        cursor.execute("ALTER TABLE sessions ADD COLUMN IF NOT EXISTS final_notes_versions TEXT")
 
 
 def _init_sqlite() -> None:
@@ -320,6 +322,8 @@ def _init_sqlite() -> None:
                 final_notes_text TEXT,
                 student_notes_text TEXT,
                 live_notes_history TEXT,
+                transcript_text TEXT,
+                final_notes_versions TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(course_id) REFERENCES courses(id) ON DELETE SET NULL
             )
@@ -331,6 +335,10 @@ def _init_sqlite() -> None:
             cursor.execute("ALTER TABLE sessions ADD COLUMN live_notes_history TEXT")
         if "student_notes_text" not in session_columns:
             cursor.execute("ALTER TABLE sessions ADD COLUMN student_notes_text TEXT")
+        if "transcript_text" not in session_columns:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN transcript_text TEXT")
+        if "final_notes_versions" not in session_columns:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN final_notes_versions TEXT")
 
 
 def init_db() -> None:

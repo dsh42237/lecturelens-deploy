@@ -3,7 +3,12 @@
 import { Suspense, useEffect, useState } from "react";
 import AppLayout from "../../../components/AppLayout";
 import SessionDocument from "../../../components/SessionDocument";
-import { getMe, getSession, type SessionInfo } from "../../../lib/api";
+import {
+  getMe,
+  getSession,
+  regenerateSessionFinalNotes,
+  type SessionInfo
+} from "../../../lib/api";
 import { exportSessionPdf } from "../../../lib/pdf";
 
 function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
@@ -11,6 +16,7 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
   const [status, setStatus] = useState<string | null>("Loading session...");
   const [authRequired, setAuthRequired] = useState(false);
   const [pdfBusy, setPdfBusy] = useState<"idle" | "open" | "download">("idle");
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -53,6 +59,20 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
     }
   };
 
+  const handleRegenerate = async () => {
+    if (!session) return;
+    setIsRegenerating(true);
+    try {
+      const updated = await regenerateSessionFinalNotes(session.id);
+      setSession(updated);
+      setStatus("Final notes regenerated.");
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Failed to regenerate final notes");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
   return (
     <AppLayout>
       <main className="page-shell">
@@ -78,6 +98,14 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
                   disabled={pdfBusy !== "idle"}
                 >
                   {pdfBusy === "download" ? "Building PDF..." : "Download PDF"}
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => void handleRegenerate()}
+                  disabled={isRegenerating}
+                >
+                  {isRegenerating ? "Regenerating..." : "Regenerate Notes"}
                 </button>
               </>
             )}

@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "../../components/AppLayout";
 import MarkdownNotes from "../../components/MarkdownNotes";
-import { getMe, listSessions, deleteSession } from "../../lib/api";
+import { getMe, listSessions, deleteSession, regenerateSessionFinalNotes } from "../../lib/api";
 
 interface SessionItem {
   id: string;
@@ -16,6 +16,7 @@ interface SessionItem {
   final_notes_text?: string | null;
   student_notes_text?: string | null;
   live_notes_history?: { timestamp: number; notes: LiveNotesSnapshot }[];
+  final_notes_versions_count?: number;
 }
 
 interface LiveNotesSnapshot {
@@ -33,6 +34,7 @@ function SessionsPageContent() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [authRequired, setAuthRequired] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [regeneratingSessionId, setRegeneratingSessionId] = useState<string | null>(null);
   const highlightedSessionId = searchParams.get("session");
   const highlightedRef = useRef<HTMLDivElement | null>(null);
 
@@ -199,6 +201,32 @@ function SessionsPageContent() {
                       <button
                         type="button"
                         className="ghost-btn"
+                        disabled={regeneratingSessionId === session.id}
+                        onClick={async () => {
+                          try {
+                            setStatus(null);
+                            setRegeneratingSessionId(session.id);
+                            const updated = await regenerateSessionFinalNotes(session.id);
+                            setSessions((prev) =>
+                              prev.map((item) => (item.id === updated.id ? updated : item))
+                            );
+                            setStatus(`Final notes regenerated for session ${session.id.slice(0, 8)}.`);
+                          } catch (err) {
+                            setStatus(
+                              err instanceof Error
+                                ? err.message
+                                : "Failed to regenerate final notes"
+                            );
+                          } finally {
+                            setRegeneratingSessionId(null);
+                          }
+                        }}
+                      >
+                        {regeneratingSessionId === session.id ? "Regenerating..." : "Regenerate Notes"}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost-btn"
                         onClick={async () => {
                           await deleteSession(session.id);
                           const items = await listSessions();
@@ -239,6 +267,12 @@ function SessionsPageContent() {
                         <MarkdownNotes content={session.final_notes_text} />
                       </div>
                     )}
+                    {typeof session.final_notes_versions_count === "number" &&
+                      session.final_notes_versions_count > 0 && (
+                        <div className="muted">
+                          Previous final-note versions saved: {session.final_notes_versions_count}
+                        </div>
+                      )}
                     {session.student_notes_text && (
                       <details className="session-notes-details">
                         <summary>Student notes</summary>

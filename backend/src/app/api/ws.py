@@ -942,16 +942,18 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
         if state.user_id is not None:
             ended_at = datetime.utcnow().isoformat()
             history = SESSION_LIVE_HISTORY.get(session_id, state.live_notes_history)
+            transcript_full_text = " ".join(text for _, text in state.transcript).strip()
             with get_db() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "UPDATE sessions SET ended_at = %s, final_notes_text = %s, student_notes_text = %s, live_notes_history = %s "
+                        "UPDATE sessions SET ended_at = %s, final_notes_text = %s, student_notes_text = %s, live_notes_history = %s, transcript_text = %s "
                         "WHERE id = %s AND user_id = %s",
                         (
                             ended_at,
                             state.final_notes_text or None,
                             state.student_notes_text or None,
                             json.dumps(history),
+                            transcript_full_text or None,
                             session_id,
                             state.user_id,
                         ),
@@ -1068,8 +1070,8 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                             started_at = datetime.utcnow().isoformat()
                             cur.execute(
                                 "INSERT INTO sessions "
-                                "(id, user_id, course_id, started_at, ended_at, final_notes_text, student_notes_text, live_notes_history) "
-                                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+                                "(id, user_id, course_id, started_at, ended_at, final_notes_text, student_notes_text, live_notes_history, transcript_text, final_notes_versions) "
+                                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
                                 "ON CONFLICT (id) DO UPDATE SET user_id = EXCLUDED.user_id",
                                 (
                                     session_id,
@@ -1078,6 +1080,8 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                                     started_at,
                                     None,
                                     None,
+                                    None,
+                                    "[]",
                                     None,
                                     "[]",
                                 ),

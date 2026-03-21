@@ -85,6 +85,7 @@ export interface SessionInfo {
   final_notes_text?: string | null;
   student_notes_text?: string | null;
   live_notes_history?: { timestamp: number; notes: Record<string, unknown> }[];
+  final_notes_versions_count?: number;
 }
 
 export async function register(email: string, password: string): Promise<UserInfo> {
@@ -187,4 +188,8 @@ export async function getSession(id: string): Promise<SessionInfo> {
 
 export async function deleteSession(id: string): Promise<{ ok: boolean }> {
   return request(`/sessions/${id}`, { method: "DELETE" });
+}
+
+export async function regenerateSessionFinalNotes(id: string): Promise<SessionInfo> {
+  return request(`/sessions/${id}/regenerate-final-notes`, { method: "POST" });
 }
