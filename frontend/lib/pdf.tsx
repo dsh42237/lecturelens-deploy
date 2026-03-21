@@ -1,38 +1,177 @@
 "use client";
 
-import { createRoot } from "react-dom/client";
+import mermaid from "mermaid";
 import type { SessionInfo } from "./api";
-import SessionPdfDocument from "../components/SessionPdfDocument";
 
 type PdfMode = "download" | "open";
+type MarkdownBlock =
+  | { type: "subtitle"; text: string }
+  | { type: "heading"; text: string }
+  | { type: "bullet"; text: string }
+  | { type: "paragraph"; text: string }
+  | { type: "mermaid"; code: string };
 
-async function waitForRender(container: HTMLElement) {
-  if ("fonts" in document) {
-    try {
-      await document.fonts.ready;
-    } catch {
-      // Ignore font-loading issues in export mode.
-    }
+let mermaidReady = false;
+let mermaidCounter = 0;
+
+const MERMAID_TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\\n/g, " / "],
+  [/!=/g, " not equal "],
+  [/∑/g, "Sigma"],
+  [/Σ/g, "Sigma"],
+  [/Δ/g, "delta"],
+  [/≠/g, "not equal"],
+  [/≤/g, "<="],
+  [/≥/g, ">="],
+  [/→/g, "to"],
+  [/←/g, "from"],
+  [/↔/g, "with"],
+  [/×/g, "x"],
+  [/÷/g, "/"],
+  [/·/g, "-"]
+];
+
+function ensureMermaid() {
+  if (mermaidReady) return;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: "default"
+  });
+  mermaidReady = true;
+}
+
+function sanitizeLabel(label: string) {
+  let sanitized = label.normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  for (const [pattern, replacement] of MERMAID_TOKEN_REPLACEMENTS) {
+    sanitized = sanitized.replace(pattern, replacement);
+  }
+  sanitized = sanitized.replace(/[^\x20-\x7E]/g, " ");
+  sanitized = sanitized.replace(/\s+/g, " ").trim();
+  return sanitized;
+}
+
+function sanitizeMermaidCode(source: string) {
+  let sanitized = source.trim();
+  for (const [pattern, replacement] of MERMAID_TOKEN_REPLACEMENTS) {
+    sanitized = sanitized.replace(pattern, replacement);
   }
 
-  await new Promise((resolve) => window.setTimeout(resolve, 900));
+  sanitized = sanitized
+    .split("\n")
+    .map((line) => {
+      if (!line.trim()) return "";
+      return line.replace(
+        /(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\}|\"[^\"]*\"|\|[^|]*\|)/g,
+        (segment) => {
+          const start = segment[0];
+          const end = segment[segment.length - 1];
+          return `${start}${sanitizeLabel(segment.slice(1, -1))}${end}`;
+        }
+      );
+    })
+    .join("\n");
 
-  const images = Array.from(container.querySelectorAll("img"));
-  await Promise.all(
-    images.map(
-      (image) =>
-        new Promise<void>((resolve) => {
-          if (image.complete) {
-            resolve();
-            return;
-          }
-          image.onload = () => resolve();
-          image.onerror = () => resolve();
-        })
-    )
-  );
+  sanitized = sanitized.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " ");
+  sanitized = sanitized.replace(/[ ]{2,}/g, " ");
+  return sanitized.trim();
+}
 
-  await new Promise((resolve) => window.setTimeout(resolve, 300));
+function normalizeLatex(text: string) {
+  let normalized = text;
+  for (let i = 0; i < 6; i += 1) {
+    normalized = normalized.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
+    normalized = normalized.replace(/\\sqrt\{([^{}]+)\}/g, "sqrt($1)");
+  }
+  normalized = normalized
+    .replace(/\\pm/g, "±")
+    .replace(/\\cdot/g, "·")
+    .replace(/\\times/g, "×")
+    .replace(/\\neq/g, "≠")
+    .replace(/\\geq/g, "≥")
+    .replace(/\\leq/g, "≤")
+    .replace(/\\to/g, "→")
+    .replace(/\\Rightarrow/g, "⇒")
+    .replace(/\\left/g, "")
+    .replace(/\\right/g, "")
+    .replace(/\\,/g, " ")
+    .replace(/\\!/g, "")
+    .replace(/\\text\{([^{}]+)\}/g, "$1")
+    .replace(/[{}]/g, "")
+    .replace(/\\/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized;
+}
+
+function normalizeInlineMath(text: string) {
+  return text
+    .replace(/\$\$([^$]+)\$\$/g, (_, expr) => normalizeLatex(expr))
+    .replace(/\$([^$]+)\$/g, (_, expr) => normalizeLatex(expr))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseMarkdownBlocks(content: string): { subtitle: string | null; blocks: MarkdownBlock[] } {
+  const lines = content.split(/\r?\n/);
+  const blocks: MarkdownBlock[] = [];
+  let subtitle: string | null = null;
+  let inMermaid = false;
+  let mermaidLines: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    if (line.startsWith("```")) {
+      if (line === "```mermaid") {
+        inMermaid = true;
+        mermaidLines = [];
+        continue;
+      }
+      if (inMermaid) {
+        blocks.push({ type: "mermaid", code: mermaidLines.join("\n").trim() });
+        inMermaid = false;
+        mermaidLines = [];
+      }
+      continue;
+    }
+
+    if (inMermaid) {
+      mermaidLines.push(rawLine);
+      continue;
+    }
+
+    if (line === "# Lecture Notes") {
+      continue;
+    }
+
+    if (line.startsWith("> ")) {
+      const text = normalizeInlineMath(line.slice(2));
+      if (!subtitle) {
+        subtitle = text;
+      } else {
+        blocks.push({ type: "subtitle", text });
+      }
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      blocks.push({ type: "heading", text: normalizeInlineMath(line.slice(3)) });
+      continue;
+    }
+
+    if (line.startsWith("- ")) {
+      blocks.push({ type: "bullet", text: normalizeInlineMath(line.slice(2)) });
+      continue;
+    }
+
+    blocks.push({ type: "paragraph", text: normalizeInlineMath(line) });
+  }
+
+  return { subtitle, blocks };
 }
 
 async function getImageDataUrl(src: string, alpha = 1) {
@@ -63,6 +202,49 @@ async function getImageDataUrl(src: string, alpha = 1) {
     return canvas.toDataURL("image/png");
   } finally {
     URL.revokeObjectURL(objectUrl);
+  }
+}
+
+async function renderMermaidToDataUrl(code: string) {
+  ensureMermaid();
+  const sanitized = sanitizeMermaidCode(code);
+  if (!sanitized) {
+    return null;
+  }
+
+  try {
+    const result = await mermaid.render(`pdf-mermaid-${mermaidCounter++}`, sanitized);
+    const blob = new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const element = new Image();
+        element.onload = () => resolve(element);
+        element.onerror = () => reject(new Error("Failed to load Mermaid SVG"));
+        element.src = url;
+      });
+      const width = image.naturalWidth || 1200;
+      const height = image.naturalHeight || 700;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return null;
+      }
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(image, 0, 0, width, height);
+      return {
+        dataUrl: canvas.toDataURL("image/png"),
+        width,
+        height
+      };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return null;
   }
 }
 
@@ -116,122 +298,200 @@ function drawChrome(
   }
 }
 
+function ensurePage(
+  doc: import("jspdf").jsPDF,
+  cursorY: number,
+  neededHeight: number,
+  top: number,
+  bottom: number
+) {
+  const pageHeight = doc.internal.pageSize.getHeight();
+  if (cursorY + neededHeight <= pageHeight - bottom) {
+    return cursorY;
+  }
+  doc.addPage();
+  return top;
+}
+
+function drawWrappedText(
+  doc: import("jspdf").jsPDF,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  lineHeight: number
+) {
+  const lines = doc.splitTextToSize(text, width);
+  doc.text(lines, x, y);
+  return y + lines.length * lineHeight;
+}
+
 export async function exportSessionPdf(
   session: SessionInfo,
   mode: PdfMode = "download",
   previewWindow?: Window | null
 ) {
-  const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
-    import("jspdf"),
-    import("html2canvas")
+  const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+
+  const [logoDataUrl, watermarkDataUrl] = await Promise.all([
+    getImageDataUrl("/Logo.jpeg", 1),
+    getImageDataUrl("/Logo.jpeg", 0.05)
   ]);
 
-  const container = document.createElement("div");
-  Object.assign(container.style, {
-    position: "fixed",
-    left: "0",
-    top: "0",
-    width: "794px",
-    background: "#ffffff",
-    zIndex: "-1",
-    pointerEvents: "none",
-    opacity: "0.01"
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "pt",
+    format: "a4",
+    compress: true,
   });
-  container.className = "pdf-export-root";
-  document.body.appendChild(container);
 
-  const root = createRoot(container);
-  root.render(<SessionPdfDocument session={session} />);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 48;
+  const top = 78;
+  const bottom = 54;
+  const contentWidth = pageWidth - marginX * 2;
+  const accentBlue: [number, number, number] = [29, 78, 216];
+  const textColor: [number, number, number] = [15, 23, 42];
+  const muted: [number, number, number] = [100, 116, 139];
 
-  try {
-    await waitForRender(container);
-    const [logoDataUrl, watermarkDataUrl] = await Promise.all([
-      getImageDataUrl("/Logo.jpeg", 1),
-      getImageDataUrl("/Logo.jpeg", 0.05)
-    ]);
+  const { subtitle, blocks } = parseMarkdownBlocks(session.final_notes_text ?? "");
 
-    const doc = new jsPDF({
-      orientation: "portrait",
-      unit: "pt",
-      format: "a4",
-      compress: true
-    });
+  let y = top;
 
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#ffffff",
-      windowWidth: 794,
-      logging: false
-    });
+  doc.setFillColor(248, 251, 255);
+  doc.setDrawColor(219, 228, 240);
+  doc.roundedRect(marginX, y, contentWidth, 118, 18, 18, "FD");
+  doc.addImage(logoDataUrl, "PNG", marginX + 18, y + 18, 36, 36);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(...accentBlue);
+  doc.text("LECTURELENS STUDY PACK", marginX + 68, y + 24);
+  doc.setFontSize(24);
+  doc.setTextColor(...textColor);
+  doc.text(session.course_name ?? "Lecture Notes", marginX + 68, y + 52);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(13);
+  doc.setTextColor(...muted);
+  doc.text(session.course_code ?? "Lecture session", marginX + 68, y + 72);
 
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const marginX = 42;
-    const contentTop = 74;
-    const contentBottom = 52;
-    const usableWidth = pageWidth - marginX * 2;
-    const usableHeight = pageHeight - contentTop - contentBottom;
+  const rightX = marginX + contentWidth - 18;
+  doc.setFontSize(11);
+  doc.text(`Session ${session.id.slice(0, 8)}`, rightX, y + 26, { align: "right" });
+  doc.text(`Started ${new Date(session.started_at).toLocaleString()}`, rightX, y + 46, {
+    align: "right",
+  });
+  doc.text(
+    `Ended ${session.ended_at ? new Date(session.ended_at).toLocaleString() : "In progress"}`,
+    rightX,
+    y + 66,
+    { align: "right" }
+  );
 
-    const scale = usableWidth / canvas.width;
-    const pageSliceHeightPx = Math.floor(usableHeight / scale);
-    const totalSlices = Math.max(1, Math.ceil(canvas.height / pageSliceHeightPx));
+  y += 138;
 
-    for (let sliceIndex = 0; sliceIndex < totalSlices; sliceIndex += 1) {
-      if (sliceIndex > 0) {
-        doc.addPage();
+  if (subtitle) {
+    doc.setFont("times", "italic");
+    doc.setFontSize(14);
+    doc.setTextColor(71, 85, 105);
+    y = drawWrappedText(doc, subtitle, marginX, y, contentWidth, 18);
+    y += 10;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(124, 109, 68);
+  doc.text("FINAL NOTES", marginX, y);
+  y += 18;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(12);
+  doc.setTextColor(...textColor);
+
+  for (const block of blocks) {
+    if (block.type === "subtitle") {
+      y = ensurePage(doc, y, 34, top, bottom);
+      doc.setFont("times", "italic");
+      doc.setFontSize(13);
+      doc.setTextColor(...muted);
+      y = drawWrappedText(doc, block.text, marginX, y, contentWidth, 17);
+      y += 6;
+      continue;
+    }
+
+    if (block.type === "heading") {
+      y = ensurePage(doc, y, 44, top, bottom);
+      doc.setDrawColor(226, 232, 240);
+      doc.line(marginX, y + 4, marginX + contentWidth, y + 4);
+      y += 18;
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(18);
+      doc.setTextColor(...textColor);
+      doc.text(block.text, marginX, y);
+      y += 16;
+      continue;
+    }
+
+    if (block.type === "bullet") {
+      y = ensurePage(doc, y, 30, top, bottom);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(12);
+      doc.setTextColor(...textColor);
+      doc.text("•", marginX + 2, y);
+      const nextY = drawWrappedText(doc, block.text, marginX + 16, y, contentWidth - 16, 16);
+      y = nextY + 6;
+      continue;
+    }
+
+    if (block.type === "paragraph") {
+      y = ensurePage(doc, y, 28, top, bottom);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(12);
+      doc.setTextColor(...textColor);
+      y = drawWrappedText(doc, block.text, marginX, y, contentWidth, 16);
+      y += 8;
+      continue;
+    }
+
+    if (block.type === "mermaid") {
+      const rendered = await renderMermaidToDataUrl(block.code);
+      if (!rendered) {
+        continue;
       }
-      const sourceY = sliceIndex * pageSliceHeightPx;
-      const sliceHeightPx = Math.min(pageSliceHeightPx, canvas.height - sourceY);
-      const pageCanvas = document.createElement("canvas");
-      pageCanvas.width = canvas.width;
-      pageCanvas.height = sliceHeightPx;
-      const pageContext = pageCanvas.getContext("2d");
-      if (!pageContext) {
-        throw new Error("Canvas context unavailable for PDF pagination");
-      }
-      pageContext.fillStyle = "#ffffff";
-      pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-      pageContext.drawImage(
-        canvas,
-        0,
-        sourceY,
-        canvas.width,
-        sliceHeightPx,
-        0,
-        0,
-        pageCanvas.width,
-        sliceHeightPx
-      );
-
-      const renderedHeight = sliceHeightPx * scale;
+      const maxDiagramWidth = contentWidth - 16;
+      const diagramHeight = (rendered.height / rendered.width) * maxDiagramWidth;
+      y = ensurePage(doc, y, diagramHeight + 38, top, bottom);
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(219, 228, 240);
+      doc.roundedRect(marginX, y, contentWidth, diagramHeight + 20, 14, 14, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(...muted);
+      doc.text("Concept Diagram", marginX + 14, y + 16);
       doc.addImage(
-        pageCanvas.toDataURL("image/png"),
+        rendered.dataUrl,
         "PNG",
-        marginX,
-        contentTop,
-        usableWidth,
-        renderedHeight,
+        marginX + 8,
+        y + 24,
+        maxDiagramWidth,
+        diagramHeight,
         undefined,
         "FAST"
       );
+      y += diagramHeight + 34;
     }
-
-    drawChrome(doc, session, logoDataUrl, watermarkDataUrl);
-
-    if (mode === "open") {
-      const url = String(doc.output("bloburl"));
-      if (previewWindow && !previewWindow.closed) {
-        previewWindow.location.href = url;
-      } else {
-        window.open(url, "_blank", "noopener,noreferrer");
-      }
-      return;
-    }
-
-    doc.save(buildFileName(session));
-  } finally {
-    root.unmount();
-    container.remove();
   }
+
+  drawChrome(doc, session, logoDataUrl, watermarkDataUrl);
+
+  if (mode === "open") {
+    const url = String(doc.output("bloburl"));
+    if (previewWindow && !previewWindow.closed) {
+      previewWindow.location.href = url;
+    } else {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+    return;
+  }
+
+  doc.save(buildFileName(session));
 }
