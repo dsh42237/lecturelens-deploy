@@ -199,6 +199,28 @@ def _looks_like_math_fragment(text: str) -> bool:
     return normalized in {"sigma", "delta", "alpha", "beta", "gamma", "lambda"}
 
 
+def _should_wrap_as_math_line(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or stripped.startswith("$"):
+        return False
+    if ":" in stripped:
+        return False
+    if not _looks_like_math_fragment(stripped):
+        return False
+
+    words = re.findall(r"[A-Za-z]+", stripped)
+    operator_count = len(re.findall(r"[=+\-/*^<>|(){}\[\]]|=>|->|<-", stripped))
+    total_alpha = sum(1 for char in stripped if char.isalpha())
+
+    if len(words) >= 8 and total_alpha >= 24:
+        return False
+    if len(words) >= 6 and operator_count <= 2:
+        return False
+    if len(words) <= 4:
+        return True
+    return operator_count >= 3 and total_alpha <= 28
+
+
 def _looks_like_section_heading(text: str) -> bool:
     stripped = text.strip().strip(":").strip()
     lowered = stripped.lower()
@@ -358,7 +380,7 @@ def _cleanup_final_notes_text(text: str) -> str:
             previous_key = _normalize_sentence_key(bullet_text)
             continue
 
-        if not bullet_text.startswith("$") and _looks_like_math_fragment(bullet_text) and ":" not in bullet_text:
+        if _should_wrap_as_math_line(bullet_text):
             bullet_text = f"${bullet_text}$"
 
         key = _normalize_sentence_key(bullet_text)

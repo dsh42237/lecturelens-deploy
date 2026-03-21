@@ -1401,8 +1401,18 @@ main {
 }
 
 .session-document-brand {
+  gap: 10px;
   color: #1d4ed8;
   background: rgba(219, 234, 254, 0.9);
+}
+
+.session-document-logo,
+.session-print-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .session-document-session-id {
@@ -1516,6 +1526,49 @@ main {
   border-top: 1px solid #e2e8f0;
   color: #64748b;
   font-size: 12px;
+}
+
+.session-print-header,
+.session-print-footer,
+.session-print-watermark {
+  display: none;
+}
+
+.session-document--print {
+  position: relative;
+}
+
+.session-document--print .session-document-hero {
+  page-break-inside: avoid;
+}
+
+.session-document--print .session-document-notes-block {
+  position: relative;
+  z-index: 1;
+}
+
+.session-document--print .markdown-notes {
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+
+.session-document--print .markdown-notes h2 {
+  font-size: 23px;
+  margin-top: 20px;
+  padding-top: 8px;
+  border-top: 1px solid #e8edf5;
+}
+
+.session-document--print .markdown-notes ul {
+  padding-left: 24px;
+}
+
+.session-document--print .markdown-notes li {
+  break-inside: avoid;
+}
+
+.session-document--print .mermaid-block {
+  background: #fbfdff;
 }
 
 .session-document--print .markdown-notes h1 {
@@ -2614,6 +2667,106 @@ main {
     background: #ffffff;
   }
 
+  .page-shell {
+    padding: 0 !important;
+  }
+
+  .page-card {
+    padding: 0 !important;
+  }
+
+  .session-document--print {
+    counter-reset: page;
+    padding-top: 92px;
+    padding-bottom: 72px;
+  }
+
+  .session-document--print .session-document-hero {
+    margin-top: 0;
+    border-radius: 22px;
+    break-after: avoid-page;
+  }
+
+  .session-document--print .session-document-footer {
+    display: none;
+  }
+
+  .session-document--print .session-print-watermark,
+  .session-document--print .session-print-header,
+  .session-document--print .session-print-footer {
+    display: flex;
+  }
+
+  .session-print-watermark {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .session-print-watermark img {
+    width: 260px;
+    opacity: 0.05;
+    filter: grayscale(0.1);
+  }
+
+  .session-print-header,
+  .session-print-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    padding: 0 18mm;
+    color: #475569;
+    font-size: 10.5pt;
+    z-index: 2;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .session-print-header {
+    top: 0;
+    height: 19mm;
+    border-bottom: 1px solid #dbe4f0;
+    background: rgba(255, 255, 255, 0.96);
+  }
+
+  .session-print-footer {
+    bottom: 0;
+    height: 15mm;
+    border-top: 1px solid #dbe4f0;
+    background: rgba(255, 255, 255, 0.96);
+  }
+
+  .session-print-header-brand,
+  .session-print-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .session-print-header-brand div,
+  .session-print-header-meta {
+    display: grid;
+    gap: 2px;
+  }
+
+  .session-print-header-brand strong {
+    font-size: 11pt;
+    color: #0f172a;
+  }
+
+  .session-print-header-brand span,
+  .session-print-header-meta span,
+  .session-print-footer span {
+    line-height: 1.2;
+  }
+
+  .session-print-page-number::after {
+    content: counter(page);
+  }
+
   .session-document-hero,
   .session-document-notes-block,
   .session-document-block,
@@ -2626,7 +2779,24 @@ main {
     margin-bottom: 20px;
   }
 
+  .session-document-notes-block {
+    border-color: #dbe4f0;
+  }
+
+  .session-document-notes-block,
+  .session-document-block {
+    position: relative;
+    z-index: 1;
+  }
+
   body {
     background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  @page {
+    size: auto;
+    margin: 22mm 16mm 18mm;
   }
 }

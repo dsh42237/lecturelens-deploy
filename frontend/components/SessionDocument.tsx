@@ -18,9 +18,38 @@ export default function SessionDocument({
 }: SessionDocumentProps) {
   return (
     <article className={`session-document${printMode ? " session-document--print" : ""}`}>
+      {printMode && (
+        <>
+          <div className="session-print-watermark" aria-hidden="true">
+            <img src="/Logo.jpeg" alt="" />
+          </div>
+          <div className="session-print-header" aria-hidden="true">
+            <div className="session-print-header-brand">
+              <img src="/Logo.jpeg" alt="" className="session-print-logo" />
+              <div>
+                <strong>LectureLens</strong>
+                <span>{session.course_code ?? "Lecture session"}</span>
+              </div>
+            </div>
+            <div className="session-print-header-meta">
+              <span>{session.course_name ?? "Lecture Notes"}</span>
+              <span>{new Date(session.started_at).toLocaleDateString()}</span>
+            </div>
+          </div>
+          <div className="session-print-footer" aria-hidden="true">
+            <span>LectureLens</span>
+            <span>{session.course_code ?? "Lecture session"}</span>
+            <span className="session-print-page-number">Page </span>
+          </div>
+        </>
+      )}
+
       <header className="session-document-hero">
         <div className="session-document-brand-row">
-          <span className="session-document-brand">LectureLens Notes</span>
+          <span className="session-document-brand">
+            <img src="/Logo.jpeg" alt="" className="session-document-logo" />
+            LectureLens Notes
+          </span>
           <span className="session-document-session-id">Session {session.id.slice(0, 8)}</span>
         </div>
         <div className="session-document-head">
