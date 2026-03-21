@@ -27,6 +27,7 @@ from app.services.notes.normalize import normalize_notes_state
 router = APIRouter()
 SESSION_CLIENTS: dict[str, set[WebSocket]] = {}
 SESSION_RUNNING: dict[str, bool] = {}
+SESSION_FINALIZE_TASKS: dict[str, asyncio.Task] = {}
 SESSION_TRANSCRIPT_BUFFER: dict[str, str] = {}
 SESSION_LIVE_PENDING: dict[str, str] = {}
 SESSION_LIVE_STATE: dict[str, dict[str, Any]] = {}
@@ -55,6 +56,7 @@ MEMORY_MAX_CHARS = int(os.getenv("MEMORY_MAX_CHARS", "1200"))
 MAX_LIVE_NOTES_CHARS = int(os.getenv("MAX_LIVE_NOTES_CHARS", "1200"))
 MAX_FINAL_TRANSCRIPT_CHARS = int(os.getenv("MAX_FINAL_TRANSCRIPT_CHARS", "12000"))
 MAX_STUDENT_NOTES_CHARS = int(os.getenv("MAX_STUDENT_NOTES_CHARS", "4000"))
+RECONNECT_GRACE_SECONDS = int(os.getenv("SESSION_RECONNECT_GRACE_SECONDS", "20"))
 LLM_EVERY_N_BATCHES = int(os.getenv("LLM_EVERY_N_BATCHES", "2"))
 DISABLE_RULES = os.getenv("DISABLE_RULES", "0") == "1"
 
@@ -615,6 +617,9 @@ def apply_normalized_state(state: SessionState, notes: NotesDeltaPayload) -> Non
 
 
 def register_client(session_id: str, websocket: WebSocket) -> None:
+    pending = SESSION_FINALIZE_TASKS.pop(session_id, None)
+    if pending and not pending.done():
+        pending.cancel()
     clients = SESSION_CLIENTS.setdefault(session_id, set())
     clients.add(websocket)
 
@@ -904,6 +909,9 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
             return True
 
     async def finalize_and_persist_session(send_final_event: bool) -> None:
+        pending_finalize = SESSION_FINALIZE_TASKS.pop(session_id, None)
+        if pending_finalize and pending_finalize is not asyncio.current_task():
+            pending_finalize.cancel()
         final_text: str | None = None
         transcript_text = SESSION_TRANSCRIPT_BUFFER.get(session_id, "").strip()
         student_notes_text = state.student_notes_text.strip()
@@ -952,6 +960,7 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
         SESSION_LIVE_PENDING.pop(session_id, None)
         SESSION_LIVE_STATE.pop(session_id, None)
         SESSION_LIVE_HISTORY.pop(session_id, None)
+        SESSION_RUNNING.pop(session_id, None)
 
     async def live_notes_loop() -> None:
         while state.running:
@@ -1020,7 +1029,7 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                     SESSION_LIVE_PENDING[session_id] = ""
                     SESSION_LIVE_STATE[session_id] = {}
                     SESSION_LIVE_HISTORY[session_id] = []
-                    state.live_notes_history = SESSION_LIVE_HISTORY[session_id]
+                state.live_notes_history = SESSION_LIVE_HISTORY.setdefault(session_id, [])
 
                 capture_source = payload.get("captureSource")
                 playback_speed_raw = payload.get("simulationSpeed", 1.0)
@@ -1224,18 +1233,40 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
             except asyncio.CancelledError:
                 pass
         unregister_client(session_id, websocket)
+        deferred_finalize = False
         if SESSION_RUNNING.get(session_id, False):
             if not SESSION_CLIENTS.get(session_id):
-                await flush_session_audio(state, session_id, broadcast)
-                await maybe_emit_simulator_progress(state, session_id, broadcast, force=True)
-                await maybe_emit_live_notes(force=True)
-                state.running = False
-                SESSION_RUNNING[session_id] = False
-                await finalize_and_persist_session(send_final_event=False)
+                async def finalize_after_grace(current_state: SessionState) -> None:
+                    try:
+                        await asyncio.sleep(RECONNECT_GRACE_SECONDS)
+                    except asyncio.CancelledError:
+                        return
+                    if SESSION_CLIENTS.get(session_id) or not SESSION_RUNNING.get(session_id, False):
+                        SESSION_FINALIZE_TASKS.pop(session_id, None)
+                        return
+                    await flush_session_audio(current_state, session_id, broadcast)
+                    await maybe_emit_simulator_progress(
+                        current_state, session_id, broadcast, force=True
+                    )
+                    await maybe_emit_live_notes(force=True)
+                    current_state.running = False
+                    SESSION_RUNNING[session_id] = False
+                    await finalize_and_persist_session(send_final_event=False)
+                    reset_state(current_state)
+                    SESSION_FINALIZE_TASKS.pop(session_id, None)
+
+                pending = SESSION_FINALIZE_TASKS.get(session_id)
+                if pending and not pending.done():
+                    pending.cancel()
+                SESSION_FINALIZE_TASKS[session_id] = asyncio.create_task(
+                    finalize_after_grace(state)
+                )
+                deferred_finalize = True
         elif not SESSION_CLIENTS.get(session_id):
             SESSION_RUNNING.pop(session_id, None)
             SESSION_TRANSCRIPT_BUFFER.pop(session_id, None)
-        reset_state(state)
+        if not deferred_finalize:
+            reset_state(state)
 
 
 async def handle_audio_frame(

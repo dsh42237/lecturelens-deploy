@@ -23,11 +23,27 @@ const LIVE_NOTES_INTERVAL_SECONDS = 10;
 const SIMULATOR_UPLOAD_CHUNK_SECONDS = 6;
 const SIMULATOR_TAIL_SECONDS = 2;
 const SIMULATOR_MAX_BUFFERED_BYTES = 2_000_000;
+const ACTIVE_LIVE_SESSION_STORAGE_KEY = "lecturelens-active-live-session";
+const ACTIVE_LIVE_SESSION_MAX_AGE_MS = 30 * 60 * 1000;
 
 type CaptureSource = "desktop" | "phone" | "simulator";
 type SimulatorLoadState = "idle" | "loading" | "ready" | "error";
 type SimulatorMode = "audio" | "transcript";
 type FinalizationState = "idle" | "stopping" | "generating" | "ready";
+
+interface PersistedLiveSessionState {
+  sessionId: string;
+  captureSource: CaptureSource;
+  selectedCourseId: number | "";
+  studentNotesHtml: string;
+  lines: TranscriptLine[];
+  partialLine: TranscriptLine | null;
+  liveNotes: LiveNotesPayload | null;
+  liveNotesHistory: { id: string; ts: number; notes: LiveNotesPayload }[];
+  simulatorMode: SimulatorMode;
+  simulatorTranscriptText: string;
+  updatedAt: number;
+}
 
 function generateId(): string {
   const webCrypto = globalThis.crypto;
@@ -146,9 +162,41 @@ export default function HomePage() {
   const simulatorPreparePromiseRef = useRef<Promise<void> | null>(null);
   const simulatorTokenRef = useRef<string | null>(null);
   const simulatorProcessedMsRef = useRef(0);
+  const isPageUnloadingRef = useRef(false);
+  const shouldRestoreDesktopAudioRef = useRef(false);
 
   useEffect(() => {
-    window.localStorage.removeItem("desktopSessionId");
+    const raw = window.localStorage.getItem(ACTIVE_LIVE_SESSION_STORAGE_KEY);
+    if (raw) {
+      try {
+        const saved = JSON.parse(raw) as PersistedLiveSessionState;
+        const ageMs = Date.now() - Number(saved.updatedAt || 0);
+        if (saved.sessionId && ageMs >= 0 && ageMs <= ACTIVE_LIVE_SESSION_MAX_AGE_MS) {
+          setSessionId(saved.sessionId);
+          setCaptureSource(saved.captureSource);
+          setSelectedCourseId(saved.selectedCourseId);
+          setStudentNotesHtml(saved.studentNotesHtml || "");
+          setLines(Array.isArray(saved.lines) ? saved.lines : []);
+          setPartialLine(saved.partialLine ?? null);
+          setLiveNotes(saved.liveNotes ?? null);
+          setLiveNotesHistory(Array.isArray(saved.liveNotesHistory) ? saved.liveNotesHistory : []);
+          setSelectedLiveNotesId(
+            Array.isArray(saved.liveNotesHistory) && saved.liveNotesHistory.length > 0
+              ? saved.liveNotesHistory[saved.liveNotesHistory.length - 1]?.id ?? null
+              : null
+          );
+          setSimulatorMode(saved.simulatorMode ?? "audio");
+          setSimulatorTranscriptText(saved.simulatorTranscriptText ?? "");
+          setIsSessionRunning(true);
+          setStatus("Restoring active session...");
+          shouldRestoreDesktopAudioRef.current = saved.captureSource === "desktop";
+          return;
+        }
+      } catch {
+        // Ignore invalid persisted state.
+      }
+      window.localStorage.removeItem(ACTIVE_LIVE_SESSION_STORAGE_KEY);
+    }
     window.localStorage.removeItem("mobileAuthToken");
     setSessionId(generateId());
   }, []);
@@ -244,8 +292,59 @@ export default function HomePage() {
   }, [phoneConfigMode, phoneManualConfigAllowed]);
 
   useEffect(() => {
+    if (!sessionId) return;
+    if (isSessionRunning) {
+      const snapshot: PersistedLiveSessionState = {
+        sessionId,
+        captureSource,
+        selectedCourseId,
+        studentNotesHtml,
+        lines: lines.slice(-80),
+        partialLine,
+        liveNotes,
+        liveNotesHistory: liveNotesHistory.slice(-25),
+        simulatorMode,
+        simulatorTranscriptText,
+        updatedAt: Date.now()
+      };
+      window.localStorage.setItem(
+        ACTIVE_LIVE_SESSION_STORAGE_KEY,
+        JSON.stringify(snapshot)
+      );
+      return;
+    }
+    if (!isPageUnloadingRef.current) {
+      window.localStorage.removeItem(ACTIVE_LIVE_SESSION_STORAGE_KEY);
+    }
+  }, [
+    captureSource,
+    isSessionRunning,
+    lines,
+    liveNotes,
+    liveNotesHistory,
+    partialLine,
+    selectedCourseId,
+    sessionId,
+    simulatorMode,
+    simulatorTranscriptText,
+    studentNotesHtml
+  ]);
+
+  useEffect(() => {
     finalizationStateRef.current = finalizationState;
   }, [finalizationState]);
+
+  useEffect(() => {
+    const markUnloading = () => {
+      isPageUnloadingRef.current = true;
+    };
+    window.addEventListener("beforeunload", markUnloading);
+    window.addEventListener("pagehide", markUnloading);
+    return () => {
+      window.removeEventListener("beforeunload", markUnloading);
+      window.removeEventListener("pagehide", markUnloading);
+    };
+  }, []);
 
   useEffect(() => {
     if (!sessionId || authState !== "authenticated") return;
@@ -254,9 +353,12 @@ export default function HomePage() {
       try {
         const items = await listCourses();
         setCourses(items);
-        if (items.length > 0) {
-          setSelectedCourseId(items[0].id);
-        }
+        setSelectedCourseId((prev) => {
+          if (prev !== "" && items.some((item) => item.id === prev)) {
+            return prev;
+          }
+          return items.length > 0 ? items[0].id : "";
+        });
         setCourseStatus(null);
       } catch (err) {
         setCourseStatus(err instanceof Error ? err.message : "Failed to load courses");
@@ -317,6 +419,29 @@ export default function HomePage() {
   };
 
   useEffect(() => {
+    if (!isSessionRunning) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      isPageUnloadingRef.current = true;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const handlePopState = () => {
+      window.history.pushState({ liveSessionGuard: true }, "", window.location.href);
+      setStatus("Stop the session before leaving this page.");
+    };
+
+    window.history.pushState({ liveSessionGuard: true }, "", window.location.href);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [isSessionRunning]);
+
+  useEffect(() => {
     if (!sessionId || !isSessionRunning) return;
 
     setWsStatus("connecting");
@@ -351,7 +476,9 @@ export default function HomePage() {
           simulatorTimerRef.current = null;
         }
         setSimulatorRunning(false);
-        setSessionId(generateId());
+        if (!isPageUnloadingRef.current) {
+          setSessionId(generateId());
+        }
         if (
           event &&
           finalizationStateRef.current !== "ready" &&
@@ -917,6 +1044,31 @@ export default function HomePage() {
     }
     await startAudioPipeline(stream);
   };
+
+  useEffect(() => {
+    if (!shouldRestoreDesktopAudioRef.current) return;
+    if (!isSessionRunning || captureSource !== "desktop" || mediaStream || wsStatus !== "open") {
+      return;
+    }
+
+    const restoreMic = async () => {
+      try {
+        setStatus("Restoring live session and reconnecting microphone...");
+        await requestMicAndStartStreaming();
+        setStatus("Active session restored");
+        shouldRestoreDesktopAudioRef.current = false;
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Session restored. Re-enable your microphone to continue.";
+        setMicError(message);
+        setStatus("Session restored. Re-enable your microphone to continue.");
+      }
+    };
+
+    void restoreMic();
+  }, [captureSource, isSessionRunning, mediaStream, wsStatus]);
 
   if (!sessionId || authState === "checking") {
     return (
