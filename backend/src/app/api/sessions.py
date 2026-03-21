@@ -51,6 +51,36 @@ def list_sessions(user=Depends(get_current_user)) -> list[SessionOut]:
     ]
 
 
+@router.get("/{session_id}", response_model=SessionOut)
+def get_session(session_id: str, user=Depends(get_current_user)) -> SessionOut:
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT s.id, s.course_id, s.started_at, s.ended_at, s.final_notes_text, s.student_notes_text, s.live_notes_history, "
+            "c.course_code, c.course_name "
+            "FROM sessions s "
+            "LEFT JOIN courses c ON s.course_id = c.id "
+            "WHERE s.user_id = %s AND s.id = %s",
+            (user["id"], session_id),
+        )
+        row = cur.fetchone()
+    if not row:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Session not found")
+    return SessionOut(
+        id=row["id"],
+        course_id=row["course_id"],
+        course_code=row["course_code"],
+        course_name=row["course_name"],
+        started_at=row["started_at"],
+        ended_at=row["ended_at"],
+        final_notes_text=row["final_notes_text"],
+        student_notes_text=row["student_notes_text"],
+        live_notes_history=parse_live_notes_history(row["live_notes_history"]),
+    )
+
+
 @router.delete("/{session_id}")
 def delete_session(session_id: str, user=Depends(get_current_user)) -> dict[str, bool]:
     with get_db() as conn:

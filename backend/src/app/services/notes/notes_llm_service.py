@@ -164,54 +164,69 @@ def _prepare_final_transcript(transcript: str, max_chars: int = 9000) -> str:
 
 def _cleanup_final_notes_text(text: str) -> str:
     cleaned = text.strip()
-    cleaned = re.sub(r"```(?:text|markdown)?", "", cleaned, flags=re.IGNORECASE)
-    cleaned = cleaned.replace("```", "")
+    cleaned = re.sub(r"^```(?:markdown|md)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
     lines = [line.rstrip() for line in cleaned.splitlines()]
 
     result: list[str] = []
     previous_key = ""
-    current_heading = ""
     section_bullets = 0
+    in_fence = False
 
     for raw_line in lines:
-        line = raw_line.strip()
-        if not line:
+        stripped = raw_line.strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            result.append(stripped)
+            previous_key = ""
+            continue
+
+        if in_fence:
+            result.append(raw_line.rstrip())
+            continue
+
+        if not stripped:
             if result and result[-1] != "":
                 result.append("")
             continue
 
-        if line.lower() == "lecture notes":
+        if stripped.lower() in {"lecture notes", "# lecture notes"}:
             if not result:
-                result.append("Lecture Notes")
+                result.append("# Lecture Notes")
             continue
 
-        is_bullet = line.startswith("-")
-        normalized_line = line if is_bullet else line.rstrip(":")
-        key = _normalize_sentence_key(normalized_line)
-        if not key or key == previous_key:
+        if stripped.startswith("## "):
+            section_bullets = 0
+            if result and result[-1] != "":
+                result.append("")
+            result.append(stripped)
+            previous_key = _normalize_sentence_key(stripped)
+            continue
+
+        is_bullet = stripped.startswith("-")
+        key = _normalize_sentence_key(stripped)
+        if key and key == previous_key:
             continue
 
         if is_bullet:
             if section_bullets >= 4:
                 continue
-            if len(line) > 180:
-                line = f"- {line.lstrip('- ').strip()[:177].rstrip()}..."
+            if len(stripped) > 180:
+                stripped = f"- {stripped.lstrip('- ').strip()[:177].rstrip()}..."
             section_bullets += 1
-        else:
-            current_heading = line
-            section_bullets = 0
-            if result and result[-1] != "":
-                result.append("")
 
-        result.append(line)
+        result.append(stripped)
         previous_key = key
 
-    if not result or result[0] != "Lecture Notes":
-        result.insert(0, "Lecture Notes")
+    if not result or result[0] != "# Lecture Notes":
+        result.insert(0, "# Lecture Notes")
 
     compact: list[str] = []
+    fence_open = False
     for line in result:
-        if line == "" and compact and compact[-1] == "":
+        if line.startswith("```"):
+            fence_open = not fence_open
+        if line == "" and compact and compact[-1] == "" and not fence_open:
             continue
         compact.append(line)
 

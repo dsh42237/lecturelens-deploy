@@ -181,6 +181,10 @@ export async function listSessions(): Promise<SessionInfo[]> {
   return request("/sessions");
 }
 
+export async function getSession(id: string): Promise<SessionInfo> {
+  return request(`/sessions/${id}`);
+}
+
 export async function deleteSession(id: string): Promise<{ ok: boolean }> {
   return request(`/sessions/${id}`, { method: "DELETE" });
 }

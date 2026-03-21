@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "../../components/AppLayout";
+import MarkdownNotes from "../../components/MarkdownNotes";
 import { getMe, listSessions, deleteSession } from "../../lib/api";
 
 interface SessionItem {
@@ -184,6 +185,17 @@ function SessionsPageContent() {
                       </div>
                     )}
                     <div className="course-actions">
+                      <a className="secondary-btn" href={`/sessions/${encodeURIComponent(session.id)}`}>
+                        View Notes
+                      </a>
+                      <a
+                        className="ghost-btn"
+                        href={`/sessions/${encodeURIComponent(session.id)}?print=1`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        PDF / Print
+                      </a>
                       <button
                         type="button"
                         className="ghost-btn"
@@ -223,7 +235,9 @@ function SessionsPageContent() {
                       </details>
                     )}
                     {session.final_notes_text && (
-                      <pre className="context-inline">{session.final_notes_text}</pre>
+                      <div className="context-inline session-notes-render">
+                        <MarkdownNotes content={session.final_notes_text} />
+                      </div>
                     )}
                     {session.student_notes_text && (
                       <details className="session-notes-details">

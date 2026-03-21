@@ -659,25 +659,69 @@ def build_final_fallback_notes(transcript: str, student_notes: str = "") -> str:
     combined_source = transcript.strip() or student_notes.strip()
     sentences = [s.strip() for s in re.split(r"[.!?]+", combined_source) if s.strip()]
     topic_title, bullets, _terms, _questions, definitions, _steps = build_notes_summary(combined_source)
-    lines = ["Lecture Notes", "", "Overview", f"- Topic focus: {topic_title}"]
+    lines = [
+        "# Lecture Notes",
+        "",
+        f"Compact review of {topic_title.lower()}.",
+        "",
+        "## Overview",
+        f"- Topic focus: {topic_title}",
+    ]
     for bullet in bullets[:4]:
         lines.append(f"- {bullet}")
     if student_notes.strip():
         lines.append("")
-        lines.append("Student focus")
+        lines.append("## Student Focus")
         for note_line in [line.strip() for line in student_notes.splitlines() if line.strip()][:4]:
             lines.append(f"- {note_line}")
     if definitions:
         lines.append("")
-        lines.append("Definitions")
+        lines.append("## Definitions")
         for item in definitions[:4]:
             lines.append(f"- {item.term}: {item.definition}")
     if len(sentences) > 6:
         lines.append("")
-        lines.append("Exam takeaways")
+        lines.append("## Exam Takeaways")
         for sentence in sentences[-3:]:
             lines.append(f"- {sentence}")
     return "\n".join(lines)
+
+
+def estimate_audio_ms_from_text(text: str) -> int:
+    words = re.findall(r"\b[\w'-]+\b", text)
+    if not words:
+        return 0
+    words_per_minute = 145
+    estimated_ms = int((len(words) / words_per_minute) * 60_000)
+    return max(4000, estimated_ms)
+
+
+def chunk_transcript_text(text: str, max_chars: int = 420) -> list[str]:
+    normalized = re.sub(r"\r\n?", "\n", text).strip()
+    if not normalized:
+        return []
+
+    paragraphs = [part.strip() for part in re.split(r"\n{2,}", normalized) if part.strip()]
+    chunks: list[str] = []
+
+    for paragraph in paragraphs:
+        sentences = [
+            sentence.strip()
+            for sentence in re.split(r"(?<=[.!?])\s+", paragraph)
+            if sentence.strip()
+        ]
+        current = ""
+        for sentence in sentences:
+            candidate = f"{current} {sentence}".strip()
+            if current and len(candidate) > max_chars:
+                chunks.append(current)
+                current = sentence
+            else:
+                current = candidate
+        if current:
+            chunks.append(current)
+
+    return chunks
 
 
 def append_live_notes_history(state: SessionState, notes: dict[str, Any]) -> dict[str, Any]:
@@ -1045,6 +1089,46 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                     except asyncio.CancelledError:
                         pass
                 break
+
+            if message_type == "transcript_batch":
+                payload = data.get("payload") or {}
+                transcript_text = payload.get("text")
+                if not isinstance(transcript_text, str) or not transcript_text.strip():
+                    await safe_send(
+                        build_event("error", session_id, {"message": "Transcript text is required"}).model_dump()
+                    )
+                    continue
+
+                await safe_send(
+                    build_event(
+                        "status",
+                        session_id,
+                        {"message": "processing uploaded transcript"},
+                    ).model_dump()
+                )
+                for chunk in chunk_transcript_text(transcript_text):
+                    record_transcript_text(state, session_id, chunk)
+                    state.processed_audio_ms += estimate_audio_ms_from_text(chunk)
+                    await broadcast(
+                        build_event(
+                            "transcript_final",
+                            session_id,
+                            {"text": chunk, "source": "transcript", "segmentMs": 0},
+                        ).model_dump()
+                    )
+                    await maybe_emit_simulator_progress(state, session_id, broadcast)
+                    await maybe_emit_live_notes(force=False)
+
+                await maybe_emit_simulator_progress(state, session_id, broadcast, force=True)
+                await maybe_emit_live_notes(force=True)
+                await safe_send(
+                    build_event(
+                        "status",
+                        session_id,
+                        {"message": "transcript processed"},
+                    ).model_dump()
+                )
+                continue
 
             if message_type == "camera_frame":
                 if not (state.user_id is not None and state.mobile_attached):

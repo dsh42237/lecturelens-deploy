@@ -5,6 +5,7 @@ import TranscriptPanel from "../../components/TranscriptPanel";
 import LiveNotesPanel from "../../components/LiveNotesPanel";
 import StudentNotesPanel from "../../components/StudentNotesPanel";
 import SimulatorPanel from "../../components/SimulatorPanel";
+import MarkdownNotes from "../../components/MarkdownNotes";
 import LoggedOutHome from "../../components/LoggedOutHome";
 import { connectSession } from "../../lib/ws";
 import type {
@@ -19,19 +20,14 @@ import type { SessionInfo } from "../../lib/api";
 const TARGET_SAMPLE_RATE = 16000;
 const FRAME_SAMPLES = 320; // ~20ms at 16kHz
 const LIVE_NOTES_INTERVAL_SECONDS = 10;
-const SIMULATOR_CHUNK_SECONDS = 2;
+const SIMULATOR_UPLOAD_CHUNK_SECONDS = 6;
 const SIMULATOR_TAIL_SECONDS = 2;
-const SIMULATOR_MAX_AHEAD_SECONDS = 36;
 const SIMULATOR_MAX_BUFFERED_BYTES = 2_000_000;
 
 type CaptureSource = "desktop" | "phone" | "simulator";
 type SimulatorLoadState = "idle" | "loading" | "ready" | "error";
+type SimulatorMode = "audio" | "transcript";
 type FinalizationState = "idle" | "stopping" | "generating" | "ready";
-
-function clampSpeed(value: number): number {
-  if (!Number.isFinite(value)) return 1;
-  return Math.min(40, Math.max(1, value));
-}
 
 function generateId(): string {
   const webCrypto = globalThis.crypto;
@@ -128,7 +124,8 @@ export default function HomePage() {
   const [simulatorError, setSimulatorError] = useState<string | null>(null);
   const [simulatorDurationSec, setSimulatorDurationSec] = useState<number | null>(null);
   const [simulatorProgressSec, setSimulatorProgressSec] = useState(0);
-  const [simulatorSpeed, setSimulatorSpeed] = useState(16);
+  const [simulatorMode, setSimulatorMode] = useState<SimulatorMode>("audio");
+  const [simulatorTranscriptText, setSimulatorTranscriptText] = useState("");
   const [simulatorRunning, setSimulatorRunning] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -146,7 +143,6 @@ export default function HomePage() {
   const simulatorTimerRef = useRef<number | null>(null);
   const simulatorQueuedStartRef = useRef(false);
   const simulatorActiveRef = useRef(false);
-  const simulatorSpeedRef = useRef(simulatorSpeed);
   const simulatorPreparePromiseRef = useRef<Promise<void> | null>(null);
   const simulatorTokenRef = useRef<string | null>(null);
   const simulatorProcessedMsRef = useRef(0);
@@ -248,10 +244,6 @@ export default function HomePage() {
   }, [phoneConfigMode, phoneManualConfigAllowed]);
 
   useEffect(() => {
-    simulatorSpeedRef.current = simulatorSpeed;
-  }, [simulatorSpeed]);
-
-  useEffect(() => {
     finalizationStateRef.current = finalizationState;
   }, [finalizationState]);
 
@@ -341,7 +333,7 @@ export default function HomePage() {
           payload: {
             ...(selectedCourseId ? { courseId: selectedCourseId } : {}),
             captureSource,
-            simulationSpeed: captureSource === "simulator" ? simulatorSpeedRef.current : 1
+            simulationSpeed: 1
           }
         };
         connection.socket.send(JSON.stringify(startMessage));
@@ -382,6 +374,7 @@ export default function HomePage() {
       },
       onSimulatorProgress: (event) => {
         simulatorProcessedMsRef.current = event.payload.processedMs;
+        setSimulatorProgressSec(event.payload.processedMs / 1000);
       },
       onTranscriptPartial: (event) => {
         setPartialLine({ id: event.payload.lineId, text: event.payload.text });
@@ -531,23 +524,16 @@ export default function HomePage() {
     const samples = simulatorSamplesRef.current;
     const totalSamples = simulatorTotalSamplesRef.current;
     const originalSamples = simulatorOriginalSamplesRef.current;
-    const chunkSize = TARGET_SAMPLE_RATE * SIMULATOR_CHUNK_SECONDS;
+    const chunkSize = TARGET_SAMPLE_RATE * SIMULATOR_UPLOAD_CHUNK_SECONDS;
     const start = simulatorOffsetRef.current;
-    const sentLectureSec = start / TARGET_SAMPLE_RATE;
-    const processedLectureSec = simulatorProcessedMsRef.current / 1000;
-    if (sentLectureSec - processedLectureSec > SIMULATOR_MAX_AHEAD_SECONDS) {
-      simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, 120);
-      return;
-    }
     if (socket.bufferedAmount > SIMULATOR_MAX_BUFFERED_BYTES) {
-      simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, 120);
+      simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, 40);
       return;
     }
 
     if (!samples || start >= totalSamples) {
       stopSimulatorStreaming();
-      setSimulatorProgressSec(originalSamples / TARGET_SAMPLE_RATE);
-      setStatus("Simulator upload completed. Finalizing notes...");
+      setStatus("Audio upload complete. Finalizing notes...");
       stopSession();
       return;
     }
@@ -561,21 +547,48 @@ export default function HomePage() {
 
     sendAudioFrame(chunk);
     simulatorOffsetRef.current = end;
-    setSimulatorProgressSec(Math.min(end, originalSamples) / TARGET_SAMPLE_RATE);
 
     if (end >= totalSamples) {
       stopSimulatorStreaming();
-      setSimulatorProgressSec(originalSamples / TARGET_SAMPLE_RATE);
-      setStatus("Simulator upload completed. Finalizing notes...");
+      setStatus("Audio upload complete. Finalizing notes...");
       stopSession();
       return;
     }
 
-    const delayMs = (SIMULATOR_CHUNK_SECONDS * 1000) / simulatorSpeedRef.current;
-    simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, delayMs);
+    simulatorTimerRef.current = window.setTimeout(sendSimulatorChunk, 12);
   };
 
   const startSimulatorStreaming = async () => {
+    if (simulatorMode === "transcript") {
+      const transcriptText = simulatorTranscriptText.trim();
+      if (!transcriptText) {
+        setSimulatorError("Paste a lecture transcript before starting transcript mode");
+        stopSession();
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || !sessionId) {
+        setSimulatorError("Session socket is not ready for transcript processing");
+        stopSession();
+        return;
+      }
+      setSimulatorRunning(true);
+      setStatus("Uploading transcript to backend...");
+      socket.send(
+        JSON.stringify({
+          type: "transcript_batch",
+          sessionId,
+          timestamp: Date.now(),
+          payload: {
+            text: transcriptText
+          }
+        })
+      );
+      setStatus("Transcript uploaded. Generating live notes and final notes...");
+      stopSession();
+      return;
+    }
+
     if (simulatorPreparePromiseRef.current) {
       setStatus("Preparing simulator audio...");
       try {
@@ -597,7 +610,7 @@ export default function HomePage() {
     setSimulatorProgressSec(0);
     simulatorActiveRef.current = true;
     setSimulatorRunning(true);
-    setStatus(`Simulator streaming at ${simulatorSpeedRef.current.toFixed(1)}x`);
+    setStatus("Uploading audio to backend for processing...");
     sendSimulatorChunk();
   };
 
@@ -819,12 +832,15 @@ export default function HomePage() {
         if (captureSource === "desktop") {
           await requestMicAndStartStreaming();
         } else if (captureSource === "simulator") {
-          if (!simulatorFileName) {
+          if (simulatorMode === "audio" && !simulatorFileName) {
             throw new Error("Upload an audio lecture before starting the simulator");
+          }
+          if (simulatorMode === "transcript" && !simulatorTranscriptText.trim()) {
+            throw new Error("Paste a lecture transcript before starting the simulator");
           }
           setMicActive(false);
           setMicError(null);
-          setStatus("Session starting. Simulator will begin after websocket setup.");
+          setStatus("Session starting. Simulator input will begin after websocket setup.");
           simulatorQueuedStartRef.current = true;
         } else {
           setMicActive(false);
@@ -924,7 +940,9 @@ export default function HomePage() {
     captureSource === "desktop"
       ? micReady
       : captureSource === "simulator"
-        ? simulatorLoadState === "ready"
+        ? simulatorMode === "audio"
+          ? simulatorLoadState === "ready"
+          : Boolean(simulatorTranscriptText.trim())
         : true;
   const readyText = courseReady && sourceReady ? "Ready to record" : "Complete setup";
   const captureLabel =
@@ -965,10 +983,12 @@ export default function HomePage() {
         : finalizationState === "stopping"
           ? "Stopping the session and packaging notes..."
           : captureSource === "simulator" && simulatorLoadState === "loading"
-            ? "Preparing simulator audio..."
+          ? "Preparing simulator audio..."
+            : captureSource === "simulator" && simulatorMode === "transcript" && !simulatorTranscriptText.trim()
+              ? "Paste transcript text to run transcript mode."
             : captureSource === "phone" && !mobileAuthToken
               ? "Preparing phone capture link..."
-              : isSessionRunning && !sessionStartedAck
+                : isSessionRunning && !sessionStartedAck
                 ? "Starting session..."
                 : null;
 
@@ -1175,14 +1195,16 @@ export default function HomePage() {
 
           {captureSource === "simulator" && (
             <SimulatorPanel
+              mode={simulatorMode}
               fileName={simulatorFileName}
               loadState={simulatorLoadState}
               error={simulatorError}
               durationSec={simulatorDurationSec}
               progressSec={simulatorProgressSec}
-              speed={simulatorSpeed}
               isRunning={simulatorRunning}
-              onSpeedChange={(value) => setSimulatorSpeed(clampSpeed(value))}
+              transcriptText={simulatorTranscriptText}
+              onModeChange={setSimulatorMode}
+              onTranscriptChange={setSimulatorTranscriptText}
               onFileChange={(file) => {
                 void prepareSimulatorFile(file);
               }}
@@ -1271,9 +1293,9 @@ export default function HomePage() {
                       {session.final_notes_text && (
                         <section className="course-history-block">
                           <h3>Final Notes</h3>
-                          <pre className="context-inline course-history-text">
-                            {session.final_notes_text}
-                          </pre>
+                          <div className="context-inline course-history-text session-notes-render">
+                            <MarkdownNotes content={session.final_notes_text} />
+                          </div>
                         </section>
                       )}
 
@@ -1285,6 +1307,23 @@ export default function HomePage() {
                           </pre>
                         </section>
                       )}
+
+                      <div className="course-actions">
+                        <a
+                          className="secondary-btn"
+                          href={`/sessions/${encodeURIComponent(session.id)}`}
+                        >
+                          View Notes
+                        </a>
+                        <a
+                          className="ghost-btn"
+                          href={`/sessions/${encodeURIComponent(session.id)}?print=1`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          PDF / Print
+                        </a>
+                      </div>
 
                       {session.live_notes_history && session.live_notes_history.length > 0 && (
                         <section className="course-history-block">

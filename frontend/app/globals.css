@@ -820,6 +820,13 @@ main {
   align-items: start;
 }
 
+.simulator-transcript-area {
+  min-height: 220px;
+  resize: vertical;
+  font: inherit;
+  line-height: 1.6;
+}
+
 .simulator-caption {
   margin-top: 6px;
   font-size: 12px;
@@ -1299,6 +1306,159 @@ main {
   background: #f8fafc;
 }
 
+.session-document-page {
+  display: grid;
+  gap: 20px;
+}
+
+.session-document-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.session-document {
+  display: grid;
+  gap: 24px;
+}
+
+.session-document-head {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.session-document-kicker {
+  margin: 0 0 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.session-document-head h1 {
+  margin: 0;
+  font-family: "Space Grotesk", "DM Sans", sans-serif;
+  font-size: 34px;
+  color: #0f172a;
+}
+
+.session-document-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.session-document-block {
+  display: grid;
+  gap: 12px;
+}
+
+.session-document-block h2 {
+  margin: 0;
+  font-family: "Space Grotesk", "DM Sans", sans-serif;
+  font-size: 22px;
+  color: #0f172a;
+}
+
+.session-document-student {
+  max-height: none;
+}
+
+.markdown-notes {
+  color: #1f2937;
+  line-height: 1.75;
+}
+
+.markdown-notes > :first-child {
+  margin-top: 0;
+}
+
+.markdown-notes h1,
+.markdown-notes h2,
+.markdown-notes h3 {
+  font-family: "Space Grotesk", "DM Sans", sans-serif;
+  color: #0f172a;
+  margin-top: 22px;
+  margin-bottom: 10px;
+}
+
+.markdown-notes h1 {
+  font-size: 30px;
+}
+
+.markdown-notes h2 {
+  font-size: 22px;
+}
+
+.markdown-notes h3 {
+  font-size: 18px;
+}
+
+.markdown-notes p,
+.markdown-notes ul,
+.markdown-notes ol,
+.markdown-notes pre {
+  margin-top: 0;
+  margin-bottom: 14px;
+}
+
+.markdown-notes ul,
+.markdown-notes ol {
+  padding-left: 22px;
+}
+
+.markdown-notes pre,
+.markdown-notes code {
+  font-family: "SFMono-Regular", "Menlo", monospace;
+}
+
+.markdown-notes pre {
+  padding: 14px;
+  border-radius: 14px;
+  background: #0f172a;
+  color: #e2e8f0;
+  overflow: auto;
+}
+
+.markdown-notes blockquote {
+  margin: 0 0 14px;
+  padding-left: 14px;
+  border-left: 3px solid #bfdbfe;
+  color: #475569;
+}
+
+.markdown-notes hr {
+  border: none;
+  border-top: 1px solid #dbe4f0;
+  margin: 18px 0;
+}
+
+.mermaid-block {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #dbe4f0;
+  background: #ffffff;
+  overflow: auto;
+}
+
+.mermaid-fallback {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid #fecaca;
+  background: #fff7f7;
+  color: #991b1b;
+}
+
+.mermaid-fallback pre {
+  white-space: pre-wrap;
+  margin: 10px 0 0;
+}
+
 .live-notes-rail {
   height: calc(100vh - 120px);
   min-height: 640px;
@@ -1520,6 +1680,10 @@ main {
   border-radius: 10px;
   padding: 10px;
   border: 1px solid #e2e8f0;
+}
+
+.session-notes-render {
+  overflow: hidden;
 }
 
 .session-notes-details {
@@ -2237,6 +2401,10 @@ main {
     align-items: flex-start;
   }
 
+  .session-document-actions {
+    justify-content: flex-start;
+  }
+
   .mobile-link-card {
     grid-template-columns: 1fr;
   }
@@ -2252,5 +2420,36 @@ main {
 
   .history-topic {
     max-width: 120px;
+  }
+}
+
+@media print {
+  .sidebar,
+  .session-document-actions,
+  .course-actions,
+  .session-feedback,
+  .session-toolbar,
+  .mobile-link-card,
+  .simulator-card,
+  .live-side-column {
+    display: none !important;
+  }
+
+  .app-layout,
+  .page-shell,
+  .page-card,
+  .session-document-page,
+  .session-document {
+    max-width: none;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+    border: none;
+    background: #ffffff;
+  }
+
+  body {
+    background: #ffffff;
   }
 }
