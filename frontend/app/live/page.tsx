@@ -367,6 +367,9 @@ export default function HomePage() {
           setSessionStartedAck(true);
           setFinalizationState("idle");
         }
+        if (event.payload.message === "finalizing session") {
+          setFinalizationState((prev) => (prev === "ready" ? prev : "generating"));
+        }
         if (event.payload.message === "session stopped") {
           setSessionStartedAck(false);
           setFinalizationState((prev) => (prev === "ready" ? prev : "generating"));
@@ -580,12 +583,12 @@ export default function HomePage() {
           sessionId,
           timestamp: Date.now(),
           payload: {
-            text: transcriptText
+            text: transcriptText,
+            studentNotes: extractPlainTextFromHtml(studentNotesHtml)
           }
         })
       );
-      setStatus("Transcript uploaded. Generating live notes and final notes...");
-      stopSession();
+      setStatus("Transcript uploaded. Building live notes and final notes...");
       return;
     }
 

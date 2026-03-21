@@ -696,30 +696,47 @@ def estimate_audio_ms_from_text(text: str) -> int:
     return max(4000, estimated_ms)
 
 
-def chunk_transcript_text(text: str, max_chars: int = 420) -> list[str]:
+def chunk_transcript_text(
+    text: str, target_words: int = 180, max_words: int = 240
+) -> list[str]:
     normalized = re.sub(r"\r\n?", "\n", text).strip()
     if not normalized:
         return []
 
-    paragraphs = [part.strip() for part in re.split(r"\n{2,}", normalized) if part.strip()]
+    units = [
+        re.sub(r"\s+", " ", part).strip()
+        for part in re.split(r"\n+|(?<=[.!?])\s+", normalized)
+        if part.strip()
+    ]
     chunks: list[str] = []
+    current: list[str] = []
+    current_words = 0
 
-    for paragraph in paragraphs:
-        sentences = [
-            sentence.strip()
-            for sentence in re.split(r"(?<=[.!?])\s+", paragraph)
-            if sentence.strip()
-        ]
-        current = ""
-        for sentence in sentences:
-            candidate = f"{current} {sentence}".strip()
-            if current and len(candidate) > max_chars:
-                chunks.append(current)
-                current = sentence
-            else:
-                current = candidate
+    def flush_current() -> None:
+        nonlocal current, current_words
         if current:
-            chunks.append(current)
+            chunks.append(" ".join(current).strip())
+            current = []
+            current_words = 0
+
+    for unit in units:
+        words = unit.split()
+        if len(words) > max_words:
+            flush_current()
+            start = 0
+            while start < len(words):
+                piece = words[start : start + target_words]
+                chunks.append(" ".join(piece))
+                start += target_words
+            continue
+
+        if current and current_words + len(words) > target_words:
+            flush_current()
+
+        current.append(unit)
+        current_words += len(words)
+
+    flush_current()
 
     return chunks
 
@@ -1106,6 +1123,9 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                         {"message": "processing uploaded transcript"},
                     ).model_dump()
                 )
+                student_notes = payload.get("studentNotes")
+                if isinstance(student_notes, str):
+                    state.student_notes_text = student_notes.strip()
                 for chunk in chunk_transcript_text(transcript_text):
                     record_transcript_text(state, session_id, chunk)
                     state.processed_audio_ms += estimate_audio_ms_from_text(chunk)
@@ -1125,10 +1145,23 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                     build_event(
                         "status",
                         session_id,
-                        {"message": "transcript processed"},
+                        {"message": "finalizing session"},
                     ).model_dump()
                 )
-                continue
+                state.running = False
+                SESSION_RUNNING[session_id] = False
+                await finalize_and_persist_session(send_final_event=True)
+                reset_state(state)
+                await broadcast(
+                    build_event("status", session_id, {"message": "session stopped"}).model_dump()
+                )
+                if live_notes_task:
+                    live_notes_task.cancel()
+                    try:
+                        await live_notes_task
+                    except asyncio.CancelledError:
+                        pass
+                break
 
             if message_type == "camera_frame":
                 if not (state.user_id is not None and state.mobile_attached):
