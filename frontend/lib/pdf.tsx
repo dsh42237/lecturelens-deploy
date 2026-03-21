@@ -121,17 +121,21 @@ export async function exportSessionPdf(
   mode: PdfMode = "download",
   previewWindow?: Window | null
 ) {
-  const [{ jsPDF }] = await Promise.all([import("jspdf")]);
+  const [{ jsPDF }, { default: html2canvas }] = await Promise.all([
+    import("jspdf"),
+    import("html2canvas")
+  ]);
 
   const container = document.createElement("div");
   Object.assign(container.style, {
     position: "fixed",
-    left: "-20000px",
+    left: "0",
     top: "0",
     width: "794px",
     background: "#ffffff",
     zIndex: "-1",
-    pointerEvents: "none"
+    pointerEvents: "none",
+    opacity: "0.01"
   });
   container.className = "pdf-export-root";
   document.body.appendChild(container);
@@ -153,21 +157,65 @@ export async function exportSessionPdf(
       compress: true
     });
 
-    await new Promise<void>((resolve) => {
-      doc.html(container, {
-        x: 42,
-        y: 74,
-        width: 512,
-        windowWidth: 794,
-        autoPaging: "text",
-        html2canvas: {
-          scale: 0.78,
-          useCORS: true,
-          backgroundColor: "#ffffff"
-        },
-        callback: () => resolve()
-      });
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      windowWidth: 794,
+      logging: false
     });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginX = 42;
+    const contentTop = 74;
+    const contentBottom = 52;
+    const usableWidth = pageWidth - marginX * 2;
+    const usableHeight = pageHeight - contentTop - contentBottom;
+
+    const scale = usableWidth / canvas.width;
+    const pageSliceHeightPx = Math.floor(usableHeight / scale);
+    const totalSlices = Math.max(1, Math.ceil(canvas.height / pageSliceHeightPx));
+
+    for (let sliceIndex = 0; sliceIndex < totalSlices; sliceIndex += 1) {
+      if (sliceIndex > 0) {
+        doc.addPage();
+      }
+      const sourceY = sliceIndex * pageSliceHeightPx;
+      const sliceHeightPx = Math.min(pageSliceHeightPx, canvas.height - sourceY);
+      const pageCanvas = document.createElement("canvas");
+      pageCanvas.width = canvas.width;
+      pageCanvas.height = sliceHeightPx;
+      const pageContext = pageCanvas.getContext("2d");
+      if (!pageContext) {
+        throw new Error("Canvas context unavailable for PDF pagination");
+      }
+      pageContext.fillStyle = "#ffffff";
+      pageContext.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+      pageContext.drawImage(
+        canvas,
+        0,
+        sourceY,
+        canvas.width,
+        sliceHeightPx,
+        0,
+        0,
+        pageCanvas.width,
+        sliceHeightPx
+      );
+
+      const renderedHeight = sliceHeightPx * scale;
+      doc.addImage(
+        pageCanvas.toDataURL("image/png"),
+        "PNG",
+        marginX,
+        contentTop,
+        usableWidth,
+        renderedHeight,
+        undefined,
+        "FAST"
+      );
+    }
 
     drawChrome(doc, session, logoDataUrl, watermarkDataUrl);
 
