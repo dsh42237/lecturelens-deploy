@@ -10,30 +10,29 @@ interface TranscriptPanelProps {
 
 export default function TranscriptPanel({ lines, partialLine }: TranscriptPanelProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const transcriptText = [...lines.map((line) => line.text.trim()).filter(Boolean)];
+  if (partialLine?.text?.trim()) {
+    transcriptText.push(partialLine.text.trim());
+  }
+  const tickerText = transcriptText.join("   •   ");
 
   useEffect(() => {
     const node = scrollRef.current;
     if (!node) return;
-    node.scrollTop = node.scrollHeight;
-  }, [lines.length, partialLine?.text]);
+    node.scrollLeft = node.scrollWidth;
+  }, [tickerText]);
 
   return (
-    <section style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div className="panel-heading">
-        <h2>Live Transcript</h2>
+    <section className="transcript-ticker-shell">
+      <div className="transcript-ticker-head">
+        <span className="transcript-ticker-label">Live Transcript</span>
         <span className="pill muted">Streaming</span>
       </div>
-      <div className="panel-scroll" ref={scrollRef}>
-        {lines.length === 0 && !partialLine && (
-          <div style={{ color: "#64748b" }}>Waiting for transcript...</div>
-        )}
-        {lines.map((line) => (
-          <div key={line.id} className="transcript-line">
-            {line.text}
-          </div>
-        ))}
-        {partialLine && (
-          <div className="transcript-line partial">{partialLine.text}</div>
+      <div className="transcript-ticker-track" ref={scrollRef}>
+        {tickerText ? (
+          <div className="transcript-ticker-line">{tickerText}</div>
+        ) : (
+          <div className="transcript-ticker-placeholder">Waiting for transcript...</div>
         )}
       </div>
     </section>

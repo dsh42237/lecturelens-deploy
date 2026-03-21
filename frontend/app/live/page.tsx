@@ -884,12 +884,6 @@ export default function HomePage() {
       : captureSource === "simulator"
         ? "Audio simulator"
         : "Phone mic/camera";
-  const captureDetail =
-    captureSource === "desktop"
-      ? `${micLabel} · ${micActive ? "active" : "idle"}`
-      : captureSource === "simulator"
-        ? `${simulatorFileName ?? "No file loaded"} · ${simulatorRunning ? "streaming" : "idle"}`
-        : "Phone capture ready";
   const mobileLink = mobileAuthToken
     ? `${mobileBaseUrl.replace(/\/+$/, "")}/mobile?auth=${encodeURIComponent(mobileAuthToken)}&sid=${encodeURIComponent(sessionId)}&cid=${encodeURIComponent(String(selectedCourseId || ""))}${
         mobileApiBaseUrl && mobileApiBaseUrl !== phoneDefaultApiBaseUrl
@@ -910,34 +904,15 @@ export default function HomePage() {
               <div className="live-hero-copy">
                 <div className="meta-row">
                   <span className="pill">Live Session</span>
-                  <span className="pill muted">Session {sessionId.slice(0, 8)}</span>
                   <span className={`pill muted ${connected ? "pill-live" : ""}`}>
-                    {connected ? "connected" : "disconnected"}
+                    {isSessionRunning ? "recording" : readyText}
                   </span>
+                  {status && <span className="pill muted">{status}</span>}
                 </div>
-                <h1>Run the lecture without setup clutter.</h1>
-                <p>Pick the course, choose the input, and record. Transcript, live notes, and final notes stay front and center.</p>
-                <div className="live-summary-grid">
-                  <div className="live-summary-card">
-                    <span>Course</span>
-                    <strong>
-                      {selectedCourse
-                        ? `${selectedCourse.course_code} · ${selectedCourse.course_name}`
-                        : "Select a course"}
-                    </strong>
-                  </div>
-                  <div className="live-summary-card">
-                    <span>Capture</span>
-                    <strong>{captureLabel}</strong>
-                  </div>
-                  <div className="live-summary-card">
-                    <span>Status</span>
-                    <strong>{status ?? readyText}</strong>
-                  </div>
-                </div>
+                <h1>Capture the lecture and keep the screen focused on what is live.</h1>
               </div>
 
-              <div className="session-control-board">
+              <div className="session-toolbar">
                 <div className="setup-card">
                   <div className="setup-title">Course</div>
                   {courses.length === 0 ? (
@@ -969,7 +944,7 @@ export default function HomePage() {
                 </div>
 
                 <div className="setup-card">
-                  <div className="setup-title">Input</div>
+                  <div className="setup-title">Source</div>
                   <div className="form-row compact-row">
                     <label>Capture source</label>
                     <select
@@ -980,21 +955,13 @@ export default function HomePage() {
                     >
                       <option value="desktop">Desktop mic</option>
                       <option value="phone">Phone mic/camera</option>
-                      <option value="simulator">Audio simulator</option>
-                    </select>
+                        <option value="simulator">Audio simulator</option>
+                      </select>
                   </div>
-                  <div className="setup-caption">{captureDetail}</div>
-                  <div className="setup-mini-status">
-                    <span className={`mini-dot ${courseReady ? "ok" : ""}`}>Course</span>
-                    <span className={`mini-dot ${sourceReady ? "ok" : ""}`}>Source</span>
-                    <span className={`mini-dot ${wsStatus === "open" ? "ok" : ""}`}>Socket</span>
-                  </div>
+                  <div className="setup-caption">{captureLabel}</div>
                 </div>
 
                 <div className="session-action-card">
-                  <div className={`ready-pill ${courseReady && sourceReady ? "ready" : ""}`}>
-                    {readyText}
-                  </div>
                   <button
                     type="button"
                     onClick={() => (isSessionRunning ? handleStop() : handleStart())}
@@ -1004,11 +971,9 @@ export default function HomePage() {
                     {isStopping ? "Stopping..." : isSessionRunning ? "Stop Session" : "Start Session"}
                   </button>
                   <div className="session-meta-line">
-                    <span>WS: {wsStatus}</span>
-                    <span>Mic: {permissionState}</span>
-                    <span>
-                      Notes: {lastLiveNotesUpdate ? new Date(lastLiveNotesUpdate).toLocaleTimeString() : "-"}
-                    </span>
+                    <span>{selectedCourse ? selectedCourse.course_code : "No course"}</span>
+                    <span>{captureLabel}</span>
+                    <span>{connected ? "Connected" : "Connecting"}</span>
                   </div>
                 </div>
               </div>
@@ -1127,29 +1092,32 @@ export default function HomePage() {
             />
           )}
 
-          <section className="content-grid">
-            <div className="panel-card">
-              <TranscriptPanel lines={lines} partialLine={partialLine} />
+          <TranscriptPanel lines={lines} partialLine={partialLine} />
+
+          <section className="live-workspace">
+            <div className="live-main-column">
+              <div className="panel-card final-notes-card">
+                <FinalNotesPanel notes={finalNotes} />
+              </div>
+              <div className="panel-card student-notes-card">
+                <StudentNotesPanel
+                  value={studentNotes}
+                  onChange={setStudentNotes}
+                  onClear={() => setStudentNotes("")}
+                  disabled={isStopping}
+                />
+              </div>
             </div>
-            <div className="panel-card">
-              <LiveNotesPanel
-                notes={liveNotes}
-                history={liveNotesHistory}
-                selectedId={selectedLiveNotesId}
-                onSelect={setSelectedLiveNotesId}
-              />
-            </div>
-            <div className="panel-card">
-              <FinalNotesPanel notes={finalNotes} />
-            </div>
-            <div className="panel-card">
-              <StudentNotesPanel
-                value={studentNotes}
-                onChange={setStudentNotes}
-                onClear={() => setStudentNotes("")}
-                disabled={isStopping}
-              />
-            </div>
+            <aside className="live-side-column">
+              <div className="panel-card live-notes-rail">
+                <LiveNotesPanel
+                  notes={liveNotes}
+                  history={liveNotesHistory}
+                  selectedId={selectedLiveNotesId}
+                  onSelect={setSelectedLiveNotesId}
+                />
+              </div>
+            </aside>
           </section>
         </div>
       </main>
