@@ -11,6 +11,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 COOKIE_NAME = "session"
 COOKIE_SECURE = bool(int(os.getenv("COOKIE_SECURE", "0")))
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "none" if COOKIE_SECURE else "lax")
 MOBILE_LINK_TTL_SECONDS = int(os.getenv("MOBILE_LINK_TTL_SECONDS", "600"))
 
 
@@ -33,8 +34,8 @@ def _set_session_cookie(response: Response, token: str) -> None:
         COOKIE_NAME,
         token,
         httponly=True,
-        samesite="none",
-        secure=True,
+        samesite=COOKIE_SAMESITE,
+        secure=COOKIE_SECURE,
         max_age=60 * 60 * 24 * 7,
         path="/",
     )
