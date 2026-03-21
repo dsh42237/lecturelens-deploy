@@ -1495,11 +1495,11 @@ export default function HomePage() {
                         </a>
                         <a
                           className="ghost-btn"
-                          href={`/sessions/${encodeURIComponent(session.id)}?print=1`}
+                          href={`/sessions/${encodeURIComponent(session.id)}`}
                           target="_blank"
                           rel="noreferrer"
                         >
-                          PDF / Print
+                          PDF Tools
                         </a>
                       </div>
 

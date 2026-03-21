@@ -10,6 +10,7 @@ interface MermaidBlockProps {
 let mermaidReady = false;
 const MERMAID_TOKEN_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\\n/g, " / "],
+  [/!=/g, " not equal "],
   [/∑/g, "Sigma"],
   [/Σ/g, "Sigma"],
   [/Δ/g, "delta"],
@@ -57,7 +58,7 @@ function sanitizeMermaidCode(source: string) {
         return "";
       }
       return line.replace(
-        /(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\}|\"[^\"]*\")/g,
+        /(\[[^\]]*\]|\([^\)]*\)|\{[^}]*\}|\"[^\"]*\"|\|[^|]*\|)/g,
         (segment) => {
           const start = segment[0];
           const end = segment[segment.length - 1];

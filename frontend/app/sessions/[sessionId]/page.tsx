@@ -1,17 +1,16 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import AppLayout from "../../../components/AppLayout";
 import SessionDocument from "../../../components/SessionDocument";
 import { getMe, getSession, type SessionInfo } from "../../../lib/api";
+import { exportSessionPdf } from "../../../lib/pdf";
 
 function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
-  const searchParams = useSearchParams();
-  const isPrintMode = searchParams.get("print") === "1";
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [status, setStatus] = useState<string | null>("Loading session...");
   const [authRequired, setAuthRequired] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState<"idle" | "open" | "download">("idle");
 
   useEffect(() => {
     let isMounted = true;
@@ -39,12 +38,20 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId]);
 
-  useEffect(() => {
+  const handlePdf = async (mode: "open" | "download") => {
     if (!session) return;
-    if (!isPrintMode) return;
-    const timer = window.setTimeout(() => window.print(), 350);
-    return () => window.clearTimeout(timer);
-  }, [isPrintMode, session]);
+    const previewWindow =
+      mode === "open" ? window.open("about:blank", "_blank", "noopener,noreferrer") : null;
+    setPdfBusy(mode);
+    try {
+      await exportSessionPdf(session, mode, previewWindow);
+    } catch (err) {
+      previewWindow?.close();
+      setStatus(err instanceof Error ? err.message : "Failed to export PDF");
+    } finally {
+      setPdfBusy("idle");
+    }
+  };
 
   return (
     <AppLayout>
@@ -56,16 +63,21 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
             </a>
             {session && (
               <>
-                <a
+                <button
+                  type="button"
                   className="secondary-btn"
-                  href={`/sessions/${encodeURIComponent(session.id)}?print=1`}
-                  target="_blank"
-                  rel="noreferrer"
+                  onClick={() => void handlePdf("open")}
+                  disabled={pdfBusy !== "idle"}
                 >
-                  Open Print View
-                </a>
-                <button type="button" className="primary-btn" onClick={() => window.print()}>
-                  Download PDF
+                  {pdfBusy === "open" ? "Opening PDF..." : "Open PDF"}
+                </button>
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={() => void handlePdf("download")}
+                  disabled={pdfBusy !== "idle"}
+                >
+                  {pdfBusy === "download" ? "Building PDF..." : "Download PDF"}
                 </button>
               </>
             )}
@@ -83,9 +95,8 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
           {!authRequired && session && (
             <SessionDocument
               session={session}
-              printMode={isPrintMode}
-              includeStudentNotes={!isPrintMode}
-              includeTimeline={!isPrintMode}
+              includeStudentNotes
+              includeTimeline
             />
           )}
         </div>

@@ -8,11 +8,12 @@ import MermaidBlock from "./MermaidBlock";
 
 interface MarkdownNotesProps {
   content: string;
+  className?: string;
 }
 
-export default function MarkdownNotes({ content }: MarkdownNotesProps) {
+export default function MarkdownNotes({ content, className }: MarkdownNotesProps) {
   return (
-    <div className="markdown-notes">
+    <div className={className ? `markdown-notes ${className}` : "markdown-notes"}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex]}

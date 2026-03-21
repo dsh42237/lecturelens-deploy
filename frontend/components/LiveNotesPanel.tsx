@@ -1,6 +1,7 @@
 "use client";
 
 import type { LiveNotesPayload } from "../lib/types";
+import RichNoteText from "./RichNoteText";
 
 interface LiveNotesPanelProps {
   notes: LiveNotesPayload | null;
@@ -50,12 +51,14 @@ export default function LiveNotesPanel({
                     {index === 0 && <span className="pill muted">Latest</span>}
                   </div>
                   <div className="live-notes-topic">
-                    {item.nowTopic || "(listening...)"}
+                    <RichNoteText text={item.nowTopic || "(listening...)"} className="markdown-notes--compact live-note-rich" />
                   </div>
                   {item.keyPoints?.length > 0 && (
                     <ul className="topic-bullets">
                       {item.keyPoints.map((point, pointIndex) => (
-                        <li key={`${entry.id}-point-${pointIndex}`}>{point}</li>
+                        <li key={`${entry.id}-point-${pointIndex}`}>
+                          <RichNoteText text={point} className="markdown-notes--compact live-note-rich" />
+                        </li>
                       ))}
                     </ul>
                   )}
@@ -67,13 +70,18 @@ export default function LiveNotesPanel({
                       <ul className="topic-bullets">
                         {item.defs.map((def, defIndex) => (
                           <li key={`${entry.id}-def-${defIndex}`}>
-                            <strong>{def.term}:</strong> {def.def}
+                            <strong>{def.term}:</strong>{" "}
+                            <RichNoteText text={def.def} className="markdown-notes--compact live-note-rich live-note-rich--inline" />
                           </li>
                         ))}
                       </ul>
                     </div>
                   )}
-                  {item.missedCue && <div className="missed-cue">{item.missedCue}</div>}
+                  {item.missedCue && (
+                    <div className="missed-cue">
+                      <RichNoteText text={item.missedCue} className="markdown-notes--compact live-note-rich" />
+                    </div>
+                  )}
                 </article>
               );
             })}
