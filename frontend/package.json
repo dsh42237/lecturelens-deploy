@@ -9,8 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@tiptap/extension-highlight": "^3.20.4",
+    "@tiptap/extension-placeholder": "^3.20.4",
+    "@tiptap/extension-underline": "^3.20.4",
     "@tiptap/react": "^3.20.4",
     "@tiptap/starter-kit": "^3.20.4",
+    "lucide-react": "^0.577.0",
     "next": "^14.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

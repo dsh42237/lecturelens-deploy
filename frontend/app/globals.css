@@ -1087,6 +1087,10 @@ main {
   color: #64748b;
 }
 
+.live-transcript-band {
+  width: 100%;
+}
+
 .transcript-ticker-shell {
   display: grid;
   gap: 10px;
@@ -1159,6 +1163,7 @@ main {
 .course-history-panel {
   height: auto;
   gap: 16px;
+  overflow: visible;
 }
 
 .course-history-heading {
@@ -1201,10 +1206,36 @@ main {
   justify-content: space-between;
   gap: 18px;
   padding: 18px 20px;
+  position: relative;
+  padding-right: 56px;
 }
 
 .course-history-item summary::-webkit-details-marker {
   display: none;
+}
+
+.course-history-item summary::after {
+  content: "+";
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 1px solid #dbe4f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #2563eb;
+  background: #eff6ff;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 600;
+}
+
+.course-history-item[open] summary::after {
+  content: "\2212";
 }
 
 .course-history-item-title,
@@ -1225,6 +1256,7 @@ main {
   display: grid;
   gap: 18px;
   padding: 0 20px 20px;
+  overflow: visible;
 }
 
 .course-history-item-stamps {
@@ -1247,15 +1279,15 @@ main {
 }
 
 .course-history-text {
-  max-height: 280px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .course-history-timeline {
   display: grid;
   gap: 10px;
-  max-height: 320px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .course-history-timeline-item {
@@ -1916,16 +1948,32 @@ main {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 6px;
+  border: 1px solid #e8ecf4;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+}
+
+.student-notes-toolbar .ghost-btn {
+  min-width: 38px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .student-notes-editor-shell {
   position: relative;
   flex: 1;
   min-height: 280px;
-  border: 1px solid #eadfc7;
+  border: 1px solid #e8ecf4;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+  box-shadow:
+    inset 0 1px 2px rgba(15, 23, 42, 0.03),
+    0 12px 24px rgba(15, 23, 42, 0.04);
 }
 
 .student-notes-editor-shell[data-empty="true"]::before {
@@ -1940,7 +1988,7 @@ main {
 
 .student-notes-editor {
   min-height: 280px;
-  padding: 16px 18px;
+  padding: 18px 20px;
   font-size: 14px;
   line-height: 1.75;
   color: #1f2937;
@@ -1949,8 +1997,10 @@ main {
 
 .student-notes-editor.ProseMirror:focus,
 .student-notes-editor-shell:focus-within {
-  border-color: #c0841a;
-  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12);
+  border-color: #93c5fd;
+  box-shadow:
+    0 0 0 3px rgba(59, 130, 246, 0.12),
+    0 16px 28px rgba(15, 23, 42, 0.06);
 }
 
 .student-notes-editor h1,
@@ -1963,6 +2013,13 @@ main {
 
 .student-notes-editor p {
   margin: 0 0 12px;
+}
+
+.student-notes-editor mark {
+  background: #fef3c7;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
 }
 
 .student-notes-editor ul,

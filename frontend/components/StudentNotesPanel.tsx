@@ -1,8 +1,20 @@
 "use client";
 
 import { useEffect } from "react";
+import Highlight from "@tiptap/extension-highlight";
 import { EditorContent, useEditor } from "@tiptap/react";
+import Placeholder from "@tiptap/extension-placeholder";
+import Underline from "@tiptap/extension-underline";
 import StarterKit from "@tiptap/starter-kit";
+import {
+  Bold,
+  Heading3,
+  Highlighter,
+  Italic,
+  List,
+  ListOrdered,
+  Underline as UnderlineIcon
+} from "lucide-react";
 
 interface StudentNotesPanelProps {
   value: string;
@@ -33,7 +45,13 @@ export default function StudentNotesPanel({
         heading: {
           levels: [2, 3]
         }
-      })
+      }),
+      Placeholder.configure({
+        placeholder:
+          "Add your own reminders, examples, confusions, and callouts while the lecture is running."
+      }),
+      Underline,
+      Highlight
     ],
     immediatelyRender: false,
     content: value,
@@ -82,32 +100,27 @@ export default function StudentNotesPanel({
           className={`ghost-btn ${editor?.isActive("bold") ? "active" : ""}`}
           onClick={() => runCommand(() => editor?.chain().focus().toggleBold().run())}
           disabled={disabled || !editor}
+          title="Bold"
         >
-          B
+          <Bold size={15} />
         </button>
         <button
           type="button"
           className={`ghost-btn ${editor?.isActive("italic") ? "active" : ""}`}
           onClick={() => runCommand(() => editor?.chain().focus().toggleItalic().run())}
           disabled={disabled || !editor}
+          title="Italic"
         >
-          I
+          <Italic size={15} />
         </button>
         <button
           type="button"
-          className={`ghost-btn ${editor?.isActive("bulletList") ? "active" : ""}`}
-          onClick={() => runCommand(() => editor?.chain().focus().toggleBulletList().run())}
+          className={`ghost-btn ${editor?.isActive("underline") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleUnderline().run())}
           disabled={disabled || !editor}
+          title="Underline"
         >
-          • List
-        </button>
-        <button
-          type="button"
-          className={`ghost-btn ${editor?.isActive("orderedList") ? "active" : ""}`}
-          onClick={() => runCommand(() => editor?.chain().focus().toggleOrderedList().run())}
-          disabled={disabled || !editor}
-        >
-          1. List
+          <UnderlineIcon size={15} />
         </button>
         <button
           type="button"
@@ -116,8 +129,36 @@ export default function StudentNotesPanel({
             runCommand(() => editor?.chain().focus().toggleHeading({ level: 3 }).run())
           }
           disabled={disabled || !editor}
+          title="Heading"
         >
-          H3
+          <Heading3 size={15} />
+        </button>
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("bulletList") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleBulletList().run())}
+          disabled={disabled || !editor}
+          title="Bullet list"
+        >
+          <List size={15} />
+        </button>
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("orderedList") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleOrderedList().run())}
+          disabled={disabled || !editor}
+          title="Numbered list"
+        >
+          <ListOrdered size={15} />
+        </button>
+        <button
+          type="button"
+          className={`ghost-btn ${editor?.isActive("highlight") ? "active" : ""}`}
+          onClick={() => runCommand(() => editor?.chain().focus().toggleHighlight().run())}
+          disabled={disabled || !editor}
+          title="Highlight"
+        >
+          <Highlighter size={15} />
         </button>
       </div>
 
