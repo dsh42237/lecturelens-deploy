@@ -162,16 +162,114 @@ def _prepare_final_transcript(transcript: str, max_chars: int = 9000) -> str:
     return f"{head}\n...\n{tail}"
 
 
+SECTION_HEADING_HINTS = {
+    "overview",
+    "core concept",
+    "core concepts",
+    "key ideas",
+    "key idea",
+    "key definitions",
+    "definitions",
+    "examples",
+    "historical context",
+    "intuitive correction",
+    "historical context / conceptual correction",
+    "mass and the source of inertia",
+    "mass and inertia",
+    "net force and motion",
+    "net vector force",
+    "key equations",
+    "exam takeaways",
+}
+
+
+def _strip_bullet_prefix(text: str) -> str:
+    return re.sub(r"^[-*+]\s+|^\d+[.)]\s+", "", text).strip()
+
+
+def _looks_like_math_fragment(text: str) -> bool:
+    if not text:
+        return False
+    if "$" in text:
+        return True
+    math_tokens = ("=", "=>", "->", "<-", "∑", "Σ", "Δ", "≠", "≤", "≥", "√", "^")
+    if any(token in text for token in math_tokens):
+        return True
+    normalized = text.strip().lower()
+    return normalized in {"sigma", "delta", "alpha", "beta", "gamma", "lambda"}
+
+
+def _looks_like_section_heading(text: str) -> bool:
+    stripped = text.strip().strip(":").strip()
+    lowered = stripped.lower()
+    if not stripped:
+        return False
+    if _looks_like_math_fragment(stripped):
+        return False
+    if lowered in SECTION_HEADING_HINTS:
+        return True
+    if ":" in stripped:
+        prefix = stripped.split(":", 1)[0].strip().lower()
+        if prefix in SECTION_HEADING_HINTS:
+            return True
+    if len(stripped) > 80:
+        return False
+    if any(symbol in stripped for symbol in ".!?$="):
+        return False
+    words = stripped.split()
+    if len(words) < 2:
+        return False
+    if len(words) > 9:
+        return False
+    if text.strip().endswith(":") and len(words) <= 7:
+        return True
+    capitalized = sum(1 for word in words if word[:1].isupper() or word.isupper())
+    return capitalized >= max(1, len(words) - 1)
+
+
+def _merge_line_broken_equations(lines: list[str]) -> list[str]:
+    merged: list[str] = []
+    index = 0
+    while index < len(lines):
+        current = lines[index].rstrip()
+        stripped = current.strip()
+        if stripped and stripped.endswith(":"):
+            cursor = index + 1
+            fragments: list[str] = []
+            while cursor < len(lines):
+                candidate = lines[cursor].strip()
+                if not candidate:
+                    break
+                if candidate.startswith(("#", "-", "*", "```")):
+                    break
+                if _looks_like_section_heading(candidate):
+                    break
+                if len(candidate) <= 28 or _looks_like_math_fragment(candidate):
+                    fragments.append(candidate)
+                    cursor += 1
+                    continue
+                break
+            if fragments:
+                merged.append(f"{stripped} {' '.join(fragments)}")
+                index = cursor
+                continue
+        merged.append(current)
+        index += 1
+    return merged
+
+
 def _cleanup_final_notes_text(text: str) -> str:
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:markdown|md)?\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*```$", "", cleaned)
-    lines = [line.rstrip() for line in cleaned.splitlines()]
+    lines = _merge_line_broken_equations([line.rstrip() for line in cleaned.splitlines()])
 
     result: list[str] = []
     previous_key = ""
     section_bullets = 0
     in_fence = False
+    title_seen = False
+    subtitle_seen = False
 
     for raw_line in lines:
         stripped = raw_line.strip()
@@ -191,8 +289,24 @@ def _cleanup_final_notes_text(text: str) -> str:
             continue
 
         if stripped.lower() in {"lecture notes", "# lecture notes"}:
-            if not result:
+            if not title_seen:
                 result.append("# Lecture Notes")
+                title_seen = True
+            continue
+
+        if stripped.startswith("# "):
+            if not title_seen:
+                result.append("# Lecture Notes")
+                title_seen = True
+            continue
+
+        if stripped.lower().startswith("subtitle:"):
+            subtitle = stripped.split(":", 1)[1].strip()
+            if subtitle and not subtitle_seen:
+                if result and result[-1] != "":
+                    result.append("")
+                result.append(f"> {subtitle}")
+                subtitle_seen = True
             continue
 
         if stripped.startswith("## "):
@@ -203,19 +317,62 @@ def _cleanup_final_notes_text(text: str) -> str:
             previous_key = _normalize_sentence_key(stripped)
             continue
 
-        is_bullet = stripped.startswith("-")
-        key = _normalize_sentence_key(stripped)
+        if not title_seen:
+            result.append("# Lecture Notes")
+            title_seen = True
+
+        if not subtitle_seen and not stripped.startswith(("##", "-", "*", "```")):
+            subtitle = stripped.strip(" -")
+            if subtitle and len(subtitle) <= 120 and not _looks_like_section_heading(subtitle):
+                if result and result[-1] != "":
+                    result.append("")
+                result.append(f"> {subtitle}")
+                subtitle_seen = True
+                previous_key = _normalize_sentence_key(subtitle)
+                continue
+
+        if _looks_like_section_heading(stripped):
+            heading = stripped.strip().strip(":")
+            heading = re.sub(r"\s+", " ", heading)
+            section_bullets = 0
+            if result and result[-1] != "":
+                result.append("")
+            result.append(f"## {heading}")
+            previous_key = _normalize_sentence_key(heading)
+            continue
+
+        if stripped.startswith("### "):
+            section_bullets = 0
+            if result and result[-1] != "":
+                result.append("")
+            result.append(f"## {stripped[4:].strip()}")
+            previous_key = _normalize_sentence_key(stripped)
+            continue
+
+        bullet_text = _strip_bullet_prefix(stripped)
+        if not bullet_text:
+            continue
+
+        if _looks_like_math_fragment(bullet_text) and bullet_text.startswith("$$") and bullet_text.endswith("$$"):
+            result.append(bullet_text)
+            previous_key = _normalize_sentence_key(bullet_text)
+            continue
+
+        if not bullet_text.startswith("$") and _looks_like_math_fragment(bullet_text) and ":" not in bullet_text:
+            bullet_text = f"${bullet_text}$"
+
+        key = _normalize_sentence_key(bullet_text)
         if key and key == previous_key:
             continue
 
-        if is_bullet:
-            if section_bullets >= 4:
-                continue
-            if len(stripped) > 180:
-                stripped = f"- {stripped.lstrip('- ').strip()[:177].rstrip()}..."
-            section_bullets += 1
+        if section_bullets >= 4:
+            continue
 
-        result.append(stripped)
+        if len(bullet_text) > 220:
+            bullet_text = f"{bullet_text[:217].rstrip()}..."
+
+        result.append(f"- {bullet_text}")
+        section_bullets += 1
         previous_key = key
 
     if not result or result[0] != "# Lecture Notes":

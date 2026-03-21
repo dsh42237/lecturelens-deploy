@@ -22,7 +22,6 @@ export default function SessionDocument({ session }: SessionDocumentProps) {
       </header>
 
       <section className="session-document-block">
-        <h2>Lecture Notes</h2>
         {session.final_notes_text ? (
           <MarkdownNotes content={session.final_notes_text} />
         ) : (

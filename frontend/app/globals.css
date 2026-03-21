@@ -1371,7 +1371,7 @@ main {
 
 .markdown-notes {
   color: #1f2937;
-  line-height: 1.75;
+  line-height: 1.65;
 }
 
 .markdown-notes > :first-child {
@@ -1383,8 +1383,8 @@ main {
 .markdown-notes h3 {
   font-family: "Space Grotesk", "DM Sans", sans-serif;
   color: #0f172a;
-  margin-top: 22px;
-  margin-bottom: 10px;
+  margin-top: 18px;
+  margin-bottom: 8px;
 }
 
 .markdown-notes h1 {
@@ -1404,12 +1404,16 @@ main {
 .markdown-notes ol,
 .markdown-notes pre {
   margin-top: 0;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .markdown-notes ul,
 .markdown-notes ol {
   padding-left: 22px;
+}
+
+.markdown-notes li + li {
+  margin-top: 4px;
 }
 
 .markdown-notes pre,
