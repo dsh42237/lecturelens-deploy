@@ -878,6 +878,18 @@ export default function HomePage() {
         ? simulatorLoadState === "ready"
         : true;
   const readyText = courseReady && sourceReady ? "Ready to record" : "Complete setup";
+  const captureLabel =
+    captureSource === "desktop"
+      ? "Desktop mic"
+      : captureSource === "simulator"
+        ? "Audio simulator"
+        : "Phone mic/camera";
+  const captureDetail =
+    captureSource === "desktop"
+      ? `${micLabel} · ${micActive ? "active" : "idle"}`
+      : captureSource === "simulator"
+        ? `${simulatorFileName ?? "No file loaded"} · ${simulatorRunning ? "streaming" : "idle"}`
+        : "Phone capture ready";
   const mobileLink = mobileAuthToken
     ? `${mobileBaseUrl.replace(/\/+$/, "")}/mobile?auth=${encodeURIComponent(mobileAuthToken)}&sid=${encodeURIComponent(sessionId)}&cid=${encodeURIComponent(String(selectedCourseId || ""))}${
         mobileApiBaseUrl && mobileApiBaseUrl !== phoneDefaultApiBaseUrl
@@ -894,124 +906,124 @@ export default function HomePage() {
       <main>
         <div className="app-shell">
           <header className="header-card">
-            <div className="brand">
-              <h1>LectureLens</h1>
-              <p>Capture lectures, highlight key ideas, and keep pace with the room.</p>
-              <div className="meta-row">
-                <span className="pill">Session {sessionId.slice(0, 8)}</span>
-                <span className="pill muted">{connected ? "connected" : "disconnected"}</span>
-                {status && <span className="pill muted">{status}</span>}
-              </div>
-              <div className="stat-row">
-                <span className="stat-chip">Mic: {permissionState}</span>
-                <span className="stat-chip">WS: {wsStatus}</span>
-                <span className="stat-chip">
-                  Notes: {lastLiveNotesUpdate ? new Date(lastLiveNotesUpdate).toLocaleTimeString() : "-"}
-                </span>
-              </div>
-              <div className="session-setup">
-                <div className="setup-grid">
-                  <div className="setup-card">
-                    <div className="setup-title">Course</div>
-                    {courses.length === 0 ? (
-                      <div className="setup-empty">
-                        <span>{courseStatus ?? "No courses yet"}</span>
-                        <a className="secondary-btn" href="/semesters">
-                          Add courses
-                        </a>
-                      </div>
-                    ) : (
-                      <select
-                        className="input"
-                        value={selectedCourseId}
-                        onChange={(e) => setSelectedCourseId(Number(e.target.value))}
-                        disabled={isSessionRunning}
-                      >
-                        {courses.map((course) => (
-                          <option key={course.id} value={course.id}>
-                            {course.course_code} — {course.course_name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    {selectedCourse && (
-                      <div className="setup-caption">
-                        {selectedCourse.course_code} · {selectedCourse.course_name}
-                      </div>
-                    )}
+            <div className="brand live-hero">
+              <div className="live-hero-copy">
+                <div className="meta-row">
+                  <span className="pill">Live Session</span>
+                  <span className="pill muted">Session {sessionId.slice(0, 8)}</span>
+                  <span className={`pill muted ${connected ? "pill-live" : ""}`}>
+                    {connected ? "connected" : "disconnected"}
+                  </span>
+                </div>
+                <h1>Run the lecture without setup clutter.</h1>
+                <p>Pick the course, choose the input, and record. Transcript, live notes, and final notes stay front and center.</p>
+                <div className="live-summary-grid">
+                  <div className="live-summary-card">
+                    <span>Course</span>
+                    <strong>
+                      {selectedCourse
+                        ? `${selectedCourse.course_code} · ${selectedCourse.course_name}`
+                        : "Select a course"}
+                    </strong>
                   </div>
-                  <div className="setup-card">
-                    <div className="setup-title">Capture</div>
-                    <div className="setup-caption">
-                      {captureSource === "desktop"
-                        ? `${micLabel} · ${micActive ? "Active" : "Inactive"}`
-                        : captureSource === "simulator"
-                          ? `${simulatorFileName ?? "No file"} · ${simulatorRunning ? "Streaming" : "Idle"}`
-                          : "Phone mic/camera · Remote"}
-                    </div>
-                    <ul className="checklist">
-                      <li className={courseReady ? "ok" : ""}>Course selected</li>
-                      <li className={sourceReady ? "ok" : ""}>
-                        {captureSource === "desktop"
-                          ? "Mic permission"
-                          : captureSource === "simulator"
-                            ? "Simulator file loaded"
-                            : "Phone capture selected"}
-                      </li>
-                      <li className={wsStatus === "open" ? "ok" : ""}>WebSocket connected</li>
-                    </ul>
-                    <div className="form-row" style={{ marginBottom: 0 }}>
-                      <label>Capture source</label>
-                      <select
-                        className="input"
-                        value={captureSource}
-                        onChange={(e) => setCaptureSource(e.target.value as CaptureSource)}
-                        disabled={isSessionRunning}
-                      >
-                        <option value="desktop">Desktop mic</option>
-                        <option value="phone">Phone mic/camera</option>
-                        <option value="simulator">Audio simulator</option>
-                      </select>
-                    </div>
+                  <div className="live-summary-card">
+                    <span>Capture</span>
+                    <strong>{captureLabel}</strong>
+                  </div>
+                  <div className="live-summary-card">
+                    <span>Status</span>
+                    <strong>{status ?? readyText}</strong>
                   </div>
                 </div>
-                <div className="setup-actions">
+              </div>
+
+              <div className="session-control-board">
+                <div className="setup-card">
+                  <div className="setup-title">Course</div>
+                  {courses.length === 0 ? (
+                    <div className="setup-empty">
+                      <span>{courseStatus ?? "No courses yet"}</span>
+                      <a className="secondary-btn" href="/semesters">
+                        Add courses
+                      </a>
+                    </div>
+                  ) : (
+                    <select
+                      className="input"
+                      value={selectedCourseId}
+                      onChange={(e) => setSelectedCourseId(Number(e.target.value))}
+                      disabled={isSessionRunning}
+                    >
+                      {courses.map((course) => (
+                        <option key={course.id} value={course.id}>
+                          {course.course_code} — {course.course_name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {selectedCourse && (
+                    <div className="setup-caption">
+                      {selectedCourse.course_code} · {selectedCourse.course_name}
+                    </div>
+                  )}
+                </div>
+
+                <div className="setup-card">
+                  <div className="setup-title">Input</div>
+                  <div className="form-row compact-row">
+                    <label>Capture source</label>
+                    <select
+                      className="input"
+                      value={captureSource}
+                      onChange={(e) => setCaptureSource(e.target.value as CaptureSource)}
+                      disabled={isSessionRunning}
+                    >
+                      <option value="desktop">Desktop mic</option>
+                      <option value="phone">Phone mic/camera</option>
+                      <option value="simulator">Audio simulator</option>
+                    </select>
+                  </div>
+                  <div className="setup-caption">{captureDetail}</div>
+                  <div className="setup-mini-status">
+                    <span className={`mini-dot ${courseReady ? "ok" : ""}`}>Course</span>
+                    <span className={`mini-dot ${sourceReady ? "ok" : ""}`}>Source</span>
+                    <span className={`mini-dot ${wsStatus === "open" ? "ok" : ""}`}>Socket</span>
+                  </div>
+                </div>
+
+                <div className="session-action-card">
                   <div className={`ready-pill ${courseReady && sourceReady ? "ready" : ""}`}>
                     {readyText}
                   </div>
                   <button
                     type="button"
                     onClick={() => (isSessionRunning ? handleStop() : handleStart())}
-                    className={`primary-btn ${isSessionRunning ? "stop" : ""}`}
+                    className={`primary-btn session-start-btn ${isSessionRunning ? "stop" : ""}`}
                     disabled={isStopping}
                   >
                     {isStopping ? "Stopping..." : isSessionRunning ? "Stop Session" : "Start Session"}
                   </button>
+                  <div className="session-meta-line">
+                    <span>WS: {wsStatus}</span>
+                    <span>Mic: {permissionState}</span>
+                    <span>
+                      Notes: {lastLiveNotesUpdate ? new Date(lastLiveNotesUpdate).toLocaleTimeString() : "-"}
+                    </span>
+                  </div>
                 </div>
               </div>
+
               {micError && <div className="inline-error">Mic error: {micError}</div>}
             </div>
           </header>
 
-          {mobileAuthToken && (
+          {captureSource === "phone" && mobileAuthToken && (
             <section className="mobile-link-card">
-              <div>
-                <h3>Phone Capture Link</h3>
+              <div className="phone-link-copy">
+                <h3>Phone Capture</h3>
                 <p className="muted">
-                  {phoneManualConfigAllowed
-                    ? "Scan the QR on your phone. Auto mode uses this deployment by default; local-only tunnel overrides live under Advanced."
-                    : "Scan the QR on your phone. This production deployment already provides the correct secure frontend and backend URLs."}
+                  Scan the QR on your phone, open the capture page, and enable microphone or camera there.
                 </p>
-                <div className="mobile-link-summary">
-                  <div className="status-card">
-                    <strong>Phone page</strong>
-                    {mobileBaseUrl}
-                  </div>
-                  <div className="status-card">
-                    <strong>Phone websocket</strong>
-                    {mobileApiBaseUrl}
-                  </div>
-                </div>
                 {phoneManualConfigAllowed && (
                   <details
                     className="phone-advanced"
@@ -1071,6 +1083,16 @@ export default function HomePage() {
                     </div>
                   </details>
                 )}
+                {mobileLinkStatus && <div className="muted">{mobileLinkStatus}</div>}
+              </div>
+              <div className="phone-link-qr-wrap">
+                {mobileQrUrl && (
+                  <img
+                    src={mobileQrUrl}
+                    alt="QR code for mobile capture link"
+                    className="mobile-qr"
+                  />
+                )}
                 <div className="mobile-link-actions">
                   <button type="button" className="secondary-btn" onClick={refreshMobileLink}>
                     Refresh QR
@@ -1084,37 +1106,7 @@ export default function HomePage() {
                       Copy Link
                     </button>
                   )}
-                  {mobileLink && (
-                    <a className="ghost-btn" href={mobileLink} target="_blank" rel="noreferrer">
-                      Open Link
-                    </a>
-                  )}
                 </div>
-                {mobileLink && <div className="mobile-link-text">{mobileLink}</div>}
-                {mobileLinkStatus && <div className="muted">{mobileLinkStatus}</div>}
-              </div>
-              {mobileQrUrl && (
-                <img
-                  src={mobileQrUrl}
-                  alt="QR code for mobile capture link"
-                  className="mobile-qr"
-                />
-              )}
-            </section>
-          )}
-
-          {captureSource === "phone" && (
-            <section className="mobile-preview-card">
-              <div className="panel-heading">
-                <h2>Phone Camera Preview</h2>
-                <span className="pill muted">{cameraPreviewDataUrl ? "live" : "waiting"}</span>
-              </div>
-              <div className="mobile-preview-body">
-                {cameraPreviewDataUrl ? (
-                  <img src={cameraPreviewDataUrl} alt="Phone camera preview" className="mobile-preview-image" />
-                ) : (
-                  <p className="muted">Start capture on phone to preview board feed here.</p>
-                )}
               </div>
             </section>
           )}
