@@ -982,120 +982,120 @@ export default function HomePage() {
             </div>
           </header>
 
-          {captureSource === "phone" && mobileAuthToken && (
-            <section className="mobile-link-card">
-              <div className="phone-link-copy">
-                <h3>Phone Capture</h3>
-                <p className="muted">
-                  Scan the QR on your phone, open the capture page, and enable microphone or camera there.
-                </p>
-                {phoneManualConfigAllowed && (
-                  <details
-                    className="phone-advanced"
-                    open={showPhoneAdvanced}
-                    onToggle={(event) =>
-                      setShowPhoneAdvanced((event.currentTarget as HTMLDetailsElement).open)
-                    }
-                  >
-                    <summary>Advanced phone setup</summary>
-                    <div className="phone-advanced-body">
-                      <div className="mobile-link-actions">
-                        <button
-                          type="button"
-                          className={phoneConfigMode === "auto" ? "secondary-btn" : "ghost-btn"}
-                          onClick={() => {
-                            setPhoneConfigMode("auto");
-                            setMobileBaseUrl(phoneDefaultBaseUrl);
-                            setMobileApiBaseUrl(phoneDefaultApiBaseUrl);
-                            setMobileLinkStatus("Using current deployment URLs");
-                          }}
-                        >
-                          Use deployment URLs
-                        </button>
-                        <button
-                          type="button"
-                          className={phoneConfigMode === "manual" ? "secondary-btn" : "ghost-btn"}
-                          onClick={() => {
-                            setPhoneConfigMode("manual");
-                            setShowPhoneAdvanced(true);
-                          }}
-                        >
-                          Use manual tunnel URLs
-                        </button>
-                      </div>
-                      {phoneConfigMode === "manual" && (
-                        <>
-                          <div className="form-row">
-                            <label>Phone base URL</label>
-                            <input
-                              className="input"
-                              value={mobileBaseUrl}
-                              onChange={(e) => setMobileBaseUrl(e.target.value)}
-                              placeholder="https://frontend-tunnel.example.com"
-                            />
-                          </div>
-                          <div className="form-row">
-                            <label>Phone websocket base URL</label>
-                            <input
-                              className="input"
-                              value={mobileApiBaseUrl}
-                              onChange={(e) => setMobileApiBaseUrl(normalizeWsBase(e.target.value))}
-                              placeholder="wss://backend-tunnel.example.com"
-                            />
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </details>
-                )}
-                {mobileLinkStatus && <div className="muted">{mobileLinkStatus}</div>}
-              </div>
-              <div className="phone-link-qr-wrap">
-                {mobileQrUrl && (
-                  <img
-                    src={mobileQrUrl}
-                    alt="QR code for mobile capture link"
-                    className="mobile-qr"
-                  />
-                )}
-                <div className="mobile-link-actions">
-                  <button type="button" className="secondary-btn" onClick={refreshMobileLink}>
-                    Refresh QR
-                  </button>
-                  {mobileLink && (
-                    <button
-                      type="button"
-                      className="ghost-btn"
-                      onClick={() => navigator.clipboard?.writeText(mobileLink)}
-                    >
-                      Copy Link
-                    </button>
-                  )}
-                </div>
-              </div>
-            </section>
-          )}
-
-          {captureSource === "simulator" && (
-            <SimulatorPanel
-              fileName={simulatorFileName}
-              loadState={simulatorLoadState}
-              error={simulatorError}
-              durationSec={simulatorDurationSec}
-              progressSec={simulatorProgressSec}
-              speed={simulatorSpeed}
-              isRunning={simulatorRunning}
-              onSpeedChange={(value) => setSimulatorSpeed(clampSpeed(value))}
-              onFileChange={(file) => {
-                void prepareSimulatorFile(file);
-              }}
-            />
-          )}
-
-          <TranscriptPanel lines={lines} partialLine={partialLine} />
-
           <section className="live-workspace">
             <div className="live-main-column">
+              {captureSource === "phone" && mobileAuthToken && (
+                <section className="mobile-link-card live-inline-card">
+                  <div className="phone-link-copy">
+                    <h3>Phone Capture</h3>
+                    <p className="muted">
+                      Scan the QR on your phone, open the capture page, and enable microphone or camera there.
+                    </p>
+                    {phoneManualConfigAllowed && (
+                      <details
+                        className="phone-advanced"
+                        open={showPhoneAdvanced}
+                        onToggle={(event) =>
+                          setShowPhoneAdvanced((event.currentTarget as HTMLDetailsElement).open)
+                        }
+                      >
+                        <summary>Advanced phone setup</summary>
+                        <div className="phone-advanced-body">
+                          <div className="mobile-link-actions">
+                            <button
+                              type="button"
+                              className={phoneConfigMode === "auto" ? "secondary-btn" : "ghost-btn"}
+                              onClick={() => {
+                                setPhoneConfigMode("auto");
+                                setMobileBaseUrl(phoneDefaultBaseUrl);
+                                setMobileApiBaseUrl(phoneDefaultApiBaseUrl);
+                                setMobileLinkStatus("Using current deployment URLs");
+                              }}
+                            >
+                              Use deployment URLs
+                            </button>
+                            <button
+                              type="button"
+                              className={phoneConfigMode === "manual" ? "secondary-btn" : "ghost-btn"}
+                              onClick={() => {
+                                setPhoneConfigMode("manual");
+                                setShowPhoneAdvanced(true);
+                              }}
+                            >
+                              Use manual tunnel URLs
+                            </button>
+                          </div>
+                          {phoneConfigMode === "manual" && (
+                            <>
+                              <div className="form-row">
+                                <label>Phone base URL</label>
+                                <input
+                                  className="input"
+                                  value={mobileBaseUrl}
+                                  onChange={(e) => setMobileBaseUrl(e.target.value)}
+                                  placeholder="https://frontend-tunnel.example.com"
+                                />
+                              </div>
+                              <div className="form-row">
+                                <label>Phone websocket base URL</label>
+                                <input
+                                  className="input"
+                                  value={mobileApiBaseUrl}
+                                  onChange={(e) => setMobileApiBaseUrl(normalizeWsBase(e.target.value))}
+                                  placeholder="wss://backend-tunnel.example.com"
+                                />
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </details>
+                    )}
+                    {mobileLinkStatus && <div className="muted">{mobileLinkStatus}</div>}
+                  </div>
+                  <div className="phone-link-qr-wrap">
+                    {mobileQrUrl && (
+                      <img
+                        src={mobileQrUrl}
+                        alt="QR code for mobile capture link"
+                        className="mobile-qr"
+                      />
+                    )}
+                    <div className="mobile-link-actions">
+                      <button type="button" className="secondary-btn" onClick={refreshMobileLink}>
+                        Refresh QR
+                      </button>
+                      {mobileLink && (
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => navigator.clipboard?.writeText(mobileLink)}
+                        >
+                          Copy Link
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </section>
+              )}
+
+              {captureSource === "simulator" && (
+                <SimulatorPanel
+                  fileName={simulatorFileName}
+                  loadState={simulatorLoadState}
+                  error={simulatorError}
+                  durationSec={simulatorDurationSec}
+                  progressSec={simulatorProgressSec}
+                  speed={simulatorSpeed}
+                  isRunning={simulatorRunning}
+                  onSpeedChange={(value) => setSimulatorSpeed(clampSpeed(value))}
+                  onFileChange={(file) => {
+                    void prepareSimulatorFile(file);
+                  }}
+                />
+              )}
+
+              <TranscriptPanel lines={lines} partialLine={partialLine} />
+
               <div className="panel-card final-notes-card">
                 <FinalNotesPanel notes={finalNotes} />
               </div>
