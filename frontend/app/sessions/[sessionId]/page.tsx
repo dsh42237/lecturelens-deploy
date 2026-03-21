@@ -9,13 +9,11 @@ import {
   regenerateSessionFinalNotes,
   type SessionInfo
 } from "../../../lib/api";
-import { exportSessionPdf } from "../../../lib/pdf";
 
 function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [status, setStatus] = useState<string | null>("Loading session...");
   const [authRequired, setAuthRequired] = useState(false);
-  const [pdfBusy, setPdfBusy] = useState<"idle" | "open" | "download">("idle");
   const [isRegenerating, setIsRegenerating] = useState(false);
 
   useEffect(() => {
@@ -44,21 +42,6 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId]);
 
-  const handlePdf = async (mode: "open" | "download") => {
-    if (!session) return;
-    const previewWindow =
-      mode === "open" ? window.open("about:blank", "_blank", "noopener,noreferrer") : null;
-    setPdfBusy(mode);
-    try {
-      await exportSessionPdf(session, mode, previewWindow);
-    } catch (err) {
-      previewWindow?.close();
-      setStatus(err instanceof Error ? err.message : "Failed to export PDF");
-    } finally {
-      setPdfBusy("idle");
-    }
-  };
-
   const handleRegenerate = async () => {
     if (!session) return;
     setIsRegenerating(true);
@@ -83,22 +66,6 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
             </a>
             {session && (
               <>
-                <button
-                  type="button"
-                  className="secondary-btn"
-                  onClick={() => void handlePdf("open")}
-                  disabled={pdfBusy !== "idle"}
-                >
-                  {pdfBusy === "open" ? "Opening PDF..." : "Open PDF"}
-                </button>
-                <button
-                  type="button"
-                  className="primary-btn"
-                  onClick={() => void handlePdf("download")}
-                  disabled={pdfBusy !== "idle"}
-                >
-                  {pdfBusy === "download" ? "Building PDF..." : "Download PDF"}
-                </button>
                 <button
                   type="button"
                   className="ghost-btn"

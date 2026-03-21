@@ -190,14 +190,6 @@ function SessionsPageContent() {
                       <a className="secondary-btn" href={`/sessions/${encodeURIComponent(session.id)}`}>
                         View Notes
                       </a>
-                      <a
-                        className="ghost-btn"
-                        href={`/sessions/${encodeURIComponent(session.id)}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        PDF Tools
-                      </a>
                       <button
                         type="button"
                         className="ghost-btn"

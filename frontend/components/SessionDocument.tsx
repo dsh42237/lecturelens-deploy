@@ -83,9 +83,13 @@ export default function SessionDocument({
             </span>
           </div>
           <div className="session-document-meta-card">
-            <span className="session-document-meta-label">Export</span>
-            <strong>{printMode ? "Print-ready layout" : "Reading layout"}</strong>
-            <span>Final notes, equations, and diagrams only in PDF mode.</span>
+            <span className="session-document-meta-label">Notes</span>
+            <strong>{session.final_notes_text ? "Available" : "Pending"}</strong>
+            <span>
+              {session.final_notes_text
+                ? "Final lecture summary with equations and diagrams inline."
+                : "Final notes are still being prepared for this session."}
+            </span>
           </div>
         </div>
       </header>

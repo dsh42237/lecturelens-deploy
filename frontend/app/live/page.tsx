@@ -1493,14 +1493,6 @@ export default function HomePage() {
                         >
                           View Notes
                         </a>
-                        <a
-                          className="ghost-btn"
-                          href={`/sessions/${encodeURIComponent(session.id)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          PDF Tools
-                        </a>
                       </div>
 
                       {session.live_notes_history && session.live_notes_history.length > 0 && (
