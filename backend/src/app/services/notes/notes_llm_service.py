@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import socket
 import time
 import urllib.request
@@ -96,6 +97,125 @@ def _extract_openai_text(data: dict[str, Any]) -> str:
             return "\n".join(chunks)
 
     raise ValueError("OpenAI response missing output text")
+
+
+def _normalize_sentence_key(text: str) -> str:
+    normalized = re.sub(r"[^a-z0-9\s]", "", text.lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
+def _looks_like_noise(text: str) -> bool:
+    lowered = text.strip().lower()
+    normalized = re.sub(r"[^a-z0-9\s]", "", lowered).strip()
+    if not lowered:
+        return True
+    if len(lowered) < 4:
+        return True
+    filler = {
+        "thank you",
+        "thanks",
+        "okay",
+        "ok",
+        "yeah",
+        "right",
+        "all right",
+        "so",
+        "um",
+        "uh",
+    }
+    if lowered in filler or normalized in filler:
+        return True
+    words = normalized.split()
+    if len(words) <= 2 and normalized in filler:
+        return True
+    alpha_count = sum(char.isalpha() for char in lowered)
+    if alpha_count < 3:
+        return True
+    return False
+
+
+def _prepare_final_transcript(transcript: str, max_chars: int = 9000) -> str:
+    raw = transcript.replace("\r", "\n")
+    chunks = [part.strip() for part in re.split(r"[\n]+|(?<=[.!?])\s+", raw) if part.strip()]
+
+    filtered: list[str] = []
+    seen: set[str] = set()
+    for chunk in chunks:
+        cleaned = re.sub(r"\s+", " ", chunk).strip(" -")
+        if _looks_like_noise(cleaned):
+            continue
+        key = _normalize_sentence_key(cleaned)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        filtered.append(cleaned)
+
+    prepared = "\n".join(filtered)
+    if len(prepared) <= max_chars:
+        return prepared
+
+    head_target = int(max_chars * 0.55)
+    tail_target = max_chars - head_target
+    head = prepared[:head_target].rstrip()
+    tail = prepared[-tail_target:].lstrip()
+    return f"{head}\n...\n{tail}"
+
+
+def _cleanup_final_notes_text(text: str) -> str:
+    cleaned = text.strip()
+    cleaned = re.sub(r"```(?:text|markdown)?", "", cleaned, flags=re.IGNORECASE)
+    cleaned = cleaned.replace("```", "")
+    lines = [line.rstrip() for line in cleaned.splitlines()]
+
+    result: list[str] = []
+    previous_key = ""
+    current_heading = ""
+    section_bullets = 0
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            if result and result[-1] != "":
+                result.append("")
+            continue
+
+        if line.lower() == "lecture notes":
+            if not result:
+                result.append("Lecture Notes")
+            continue
+
+        is_bullet = line.startswith("-")
+        normalized_line = line if is_bullet else line.rstrip(":")
+        key = _normalize_sentence_key(normalized_line)
+        if not key or key == previous_key:
+            continue
+
+        if is_bullet:
+            if section_bullets >= 4:
+                continue
+            if len(line) > 180:
+                line = f"- {line.lstrip('- ').strip()[:177].rstrip()}..."
+            section_bullets += 1
+        else:
+            current_heading = line
+            section_bullets = 0
+            if result and result[-1] != "":
+                result.append("")
+
+        result.append(line)
+        previous_key = key
+
+    if not result or result[0] != "Lecture Notes":
+        result.insert(0, "Lecture Notes")
+
+    compact: list[str] = []
+    for line in result:
+        if line == "" and compact and compact[-1] == "":
+            continue
+        compact.append(line)
+
+    return "\n".join(compact).strip()
 
 
 def _is_retryable_http_error(status_code: int) -> bool:
@@ -280,7 +400,8 @@ def generate_live_notes_json(
 
 
 def generate_final_notes_text(full_transcript: str, student_notes: str = "") -> str:
-    prompt = build_final_prompt(full_transcript, student_notes)
+    prepared_transcript = _prepare_final_transcript(full_transcript)
+    prompt = build_final_prompt(prepared_transcript, student_notes)
     timeout_seconds = int(os.getenv("FINAL_NOTES_TIMEOUT_SECONDS", "90"))
     max_retries = int(os.getenv("FINAL_NOTES_RETRIES", "2"))
     text_response = _request_llm_text(
@@ -288,4 +409,4 @@ def generate_final_notes_text(full_transcript: str, student_notes: str = "") -> 
         timeout_seconds=timeout_seconds,
         max_retries=max_retries,
     )
-    return text_response.strip()
+    return _cleanup_final_notes_text(text_response)

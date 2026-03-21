@@ -660,22 +660,22 @@ def build_final_fallback_notes(transcript: str, student_notes: str = "") -> str:
     sentences = [s.strip() for s in re.split(r"[.!?]+", combined_source) if s.strip()]
     topic_title, bullets, _terms, _questions, definitions, _steps = build_notes_summary(combined_source)
     lines = ["Lecture Notes", "", "Overview", f"- Topic focus: {topic_title}"]
-    for bullet in bullets[:6]:
+    for bullet in bullets[:4]:
         lines.append(f"- {bullet}")
     if student_notes.strip():
         lines.append("")
-        lines.append("Student notes")
-        for note_line in [line.strip() for line in student_notes.splitlines() if line.strip()][:8]:
+        lines.append("Student focus")
+        for note_line in [line.strip() for line in student_notes.splitlines() if line.strip()][:4]:
             lines.append(f"- {note_line}")
     if definitions:
         lines.append("")
         lines.append("Definitions")
-        for item in definitions[:6]:
+        for item in definitions[:4]:
             lines.append(f"- {item.term}: {item.definition}")
     if len(sentences) > 6:
         lines.append("")
         lines.append("Exam takeaways")
-        for sentence in sentences[-4:]:
+        for sentence in sentences[-3:]:
             lines.append(f"- {sentence}")
     return "\n".join(lines)
 
