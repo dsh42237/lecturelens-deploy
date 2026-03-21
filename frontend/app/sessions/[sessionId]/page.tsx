@@ -8,6 +8,7 @@ import { getMe, getSession, type SessionInfo } from "../../../lib/api";
 
 function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
   const searchParams = useSearchParams();
+  const isPrintMode = searchParams.get("print") === "1";
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [status, setStatus] = useState<string | null>("Loading session...");
   const [authRequired, setAuthRequired] = useState(false);
@@ -40,10 +41,10 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     if (!session) return;
-    if (searchParams.get("print") !== "1") return;
+    if (!isPrintMode) return;
     const timer = window.setTimeout(() => window.print(), 350);
     return () => window.clearTimeout(timer);
-  }, [searchParams, session]);
+  }, [isPrintMode, session]);
 
   return (
     <AppLayout>
@@ -79,7 +80,14 @@ function SessionDocumentPageContent({ sessionId }: { sessionId: string }) {
 
           {!authRequired && status && <div className="context-card"><p className="muted">{status}</p></div>}
 
-          {!authRequired && session && <SessionDocument session={session} />}
+          {!authRequired && session && (
+            <SessionDocument
+              session={session}
+              printMode={isPrintMode}
+              includeStudentNotes={!isPrintMode}
+              includeTimeline={!isPrintMode}
+            />
+          )}
         </div>
       </main>
     </AppLayout>

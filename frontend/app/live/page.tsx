@@ -1448,7 +1448,7 @@ export default function HomePage() {
                       {session.final_notes_text && (
                         <section className="course-history-block">
                           <h3>Final Notes</h3>
-                          <div className="context-inline course-history-text session-notes-render">
+                          <div className="course-history-preview session-notes-render">
                             <MarkdownNotes content={session.final_notes_text} />
                           </div>
                         </section>

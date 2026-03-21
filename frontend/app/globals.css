@@ -1205,6 +1205,10 @@ main {
   overflow: hidden;
 }
 
+.course-history-item[open] {
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+}
+
 .course-history-item summary {
   list-style: none;
   cursor: pointer;
@@ -1264,6 +1268,13 @@ main {
   gap: 18px;
   padding: 0 20px 20px;
   overflow: visible;
+  min-width: 0;
+  border-top: 1px solid #eef2f7;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.2), #ffffff);
+}
+
+.course-history-item-body > * {
+  min-width: 0;
 }
 
 .course-history-item-stamps {
@@ -1288,6 +1299,41 @@ main {
 .course-history-text {
   max-height: none;
   overflow: visible;
+}
+
+.course-history-preview {
+  padding: 22px 24px;
+  border-radius: 22px;
+  border: 1px solid #dbe4f0;
+  background: linear-gradient(180deg, #ffffff, #f8fbff);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  overflow: hidden;
+}
+
+.course-history-preview .markdown-notes {
+  font-size: 15px;
+}
+
+.course-history-preview .markdown-notes h1 {
+  display: none;
+}
+
+.course-history-preview .markdown-notes h2 {
+  font-size: 28px;
+  margin-top: 22px;
+}
+
+.course-history-preview .markdown-notes h3 {
+  font-size: 18px;
+}
+
+.course-history-preview .markdown-notes blockquote {
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.course-history-preview .mermaid-block {
+  margin-top: 10px;
 }
 
 .course-history-timeline {
@@ -1323,11 +1369,50 @@ main {
   gap: 24px;
 }
 
+.session-document-hero {
+  display: grid;
+  gap: 18px;
+  padding: 26px 28px;
+  border-radius: 28px;
+  border: 1px solid #dbe4f0;
+  background:
+    radial-gradient(circle at top right, rgba(253, 224, 71, 0.18), transparent 30%),
+    linear-gradient(180deg, #ffffff, #f8fbff);
+}
+
+.session-document-brand-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.session-document-brand,
+.session-document-session-id {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.session-document-brand {
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.9);
+}
+
+.session-document-session-id {
+  color: #475569;
+  background: rgba(241, 245, 249, 0.95);
+}
+
 .session-document-head {
   display: grid;
   gap: 14px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid #e2e8f0;
 }
 
 .session-document-kicker {
@@ -1353,9 +1438,62 @@ main {
   font-size: 13px;
 }
 
+.session-document-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.session-document-meta-card {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.session-document-meta-card strong {
+  font-size: 16px;
+  color: #0f172a;
+}
+
+.session-document-meta-card span {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.session-document-meta-label,
+.session-document-section-kicker {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 700;
+  color: #7c6d44;
+}
+
 .session-document-block {
   display: grid;
   gap: 12px;
+}
+
+.session-document-notes-block {
+  padding: 24px 26px;
+  border-radius: 26px;
+  border: 1px solid #dbe4f0;
+  background: #ffffff;
+}
+
+.session-document-section-intro {
+  display: grid;
+  gap: 4px;
+}
+
+.session-document-section-intro p {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
 }
 
 .session-document-block h2 {
@@ -1367,6 +1505,25 @@ main {
 
 .session-document-student {
   max-height: none;
+}
+
+.session-document-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 18px;
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.session-document--print .markdown-notes h1 {
+  display: none;
+}
+
+.session-document--print .markdown-notes > blockquote:first-of-type {
+  margin-top: 0;
 }
 
 .markdown-notes {
@@ -2409,6 +2566,10 @@ main {
     justify-content: flex-start;
   }
 
+  .session-document-hero {
+    padding: 22px 20px;
+  }
+
   .mobile-link-card {
     grid-template-columns: 1fr;
   }
@@ -2451,6 +2612,18 @@ main {
     box-shadow: none;
     border: none;
     background: #ffffff;
+  }
+
+  .session-document-hero,
+  .session-document-notes-block,
+  .session-document-block,
+  .course-history-timeline-item {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .session-document-hero {
+    margin-bottom: 20px;
   }
 
   body {
