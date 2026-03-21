@@ -77,13 +77,31 @@ function sanitizeMermaidCode(source: string) {
   return sanitized.trim();
 }
 
-function normalizeLatex(text: string) {
+function drawTextToken(
+  doc: import("jspdf").jsPDF,
+  token: { text: string; isMath: boolean },
+  x: number,
+  y: number
+) {
+  doc.setFont(token.isMath ? "times" : "helvetica", token.isMath ? "italic" : "normal");
+  doc.text(token.text, x, y);
+}
+
+function measureTextToken(
+  doc: import("jspdf").jsPDF,
+  token: { text: string; isMath: boolean }
+) {
+  doc.setFont(token.isMath ? "times" : "helvetica", token.isMath ? "italic" : "normal");
+  return doc.getTextWidth(token.text);
+}
+
+function normalizeMathText(text: string) {
   let normalized = text;
   for (let i = 0; i < 6; i += 1) {
     normalized = normalized.replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, "($1)/($2)");
     normalized = normalized.replace(/\\sqrt\{([^{}]+)\}/g, "sqrt($1)");
   }
-  normalized = normalized
+  return normalized
     .replace(/\\pm/g, "±")
     .replace(/\\cdot/g, "·")
     .replace(/\\times/g, "×")
@@ -101,15 +119,45 @@ function normalizeLatex(text: string) {
     .replace(/\\/g, "")
     .replace(/\s+/g, " ")
     .trim();
-  return normalized;
+}
+
+function tokenizeMixedText(text: string) {
+  const tokens: { text: string; isMath: boolean }[] = [];
+  const pattern = /\$\$([^$]+)\$\$|\$([^$]+)\$/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const plain = text.slice(lastIndex, match.index);
+      if (plain.trim()) {
+        tokens.push({ text: plain, isMath: false });
+      }
+    }
+    const mathExpr = match[1] ?? match[2];
+    const normalized = normalizeMathText(mathExpr);
+    if (normalized) {
+      tokens.push({ text: normalized, isMath: true });
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    const plain = text.slice(lastIndex);
+    if (plain.trim()) {
+      tokens.push({ text: plain, isMath: false });
+    }
+  }
+
+  if (tokens.length === 0) {
+    tokens.push({ text, isMath: false });
+  }
+
+  return tokens;
 }
 
 function normalizeInlineMath(text: string) {
-  return text
-    .replace(/\$\$([^$]+)\$\$/g, (_, expr) => normalizeLatex(expr))
-    .replace(/\$([^$]+)\$/g, (_, expr) => normalizeLatex(expr))
-    .replace(/\s+/g, " ")
-    .trim();
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function parseMarkdownBlocks(content: string): { subtitle: string | null; blocks: MarkdownBlock[] } {
@@ -214,8 +262,14 @@ async function renderMermaidToDataUrl(code: string) {
 
   try {
     const result = await mermaid.render(`pdf-mermaid-${mermaidCounter++}`, sanitized);
-    const blob = new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(result.svg, "image/svg+xml");
+    const svgElement = svgDoc.documentElement;
+    const width = Number.parseFloat(svgElement.getAttribute("width") || "1200") || 1200;
+    const height = Number.parseFloat(svgElement.getAttribute("height") || "700") || 700;
+
+    const svgBlob = new Blob([result.svg], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
     try {
       const image = await new Promise<HTMLImageElement>((resolve, reject) => {
         const element = new Image();
@@ -223,22 +277,20 @@ async function renderMermaidToDataUrl(code: string) {
         element.onerror = () => reject(new Error("Failed to load Mermaid SVG"));
         element.src = url;
       });
-      const width = image.naturalWidth || 1200;
-      const height = image.naturalHeight || 700;
       const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = Math.max(1, Math.round(width));
+      canvas.height = Math.max(1, Math.round(height));
       const context = canvas.getContext("2d");
       if (!context) {
         return null;
       }
       context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, width, height);
-      context.drawImage(image, 0, 0, width, height);
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
       return {
         dataUrl: canvas.toDataURL("image/png"),
-        width,
-        height
+        width: canvas.width,
+        height: canvas.height
       };
     } finally {
       URL.revokeObjectURL(url);
@@ -313,17 +365,58 @@ function ensurePage(
   return top;
 }
 
+function layoutTextLines(
+  doc: import("jspdf").jsPDF,
+  text: string,
+  width: number,
+  indent = 0
+) {
+  const tokens = tokenizeMixedText(text);
+  const lines: { text: string; isMath: boolean }[][] = [[]];
+  let lineWidth = indent;
+
+  for (const token of tokens) {
+    const pieces = token.text.replace(/\s+/g, " ").trim().split(" ");
+    for (let pieceIndex = 0; pieceIndex < pieces.length; pieceIndex += 1) {
+      const piece = pieces[pieceIndex];
+      if (!piece) continue;
+      const display = lineWidth === indent && lines[lines.length - 1].length === 0 ? piece : ` ${piece}`;
+      const pieceToken = { text: display, isMath: token.isMath };
+      const pieceWidth = measureTextToken(doc, pieceToken);
+
+      if (lineWidth + pieceWidth > width && lines[lines.length - 1].length > 0) {
+        lines.push([{ text: piece, isMath: token.isMath }]);
+        lineWidth = indent + measureTextToken(doc, { text: piece, isMath: token.isMath });
+      } else {
+        lines[lines.length - 1].push(pieceToken);
+        lineWidth += pieceWidth;
+      }
+    }
+  }
+
+  return lines;
+}
+
 function drawWrappedText(
   doc: import("jspdf").jsPDF,
   text: string,
   x: number,
   y: number,
   width: number,
-  lineHeight: number
+  lineHeight: number,
+  indent = 0
 ) {
-  const lines = doc.splitTextToSize(text, width);
-  doc.text(lines, x, y);
-  return y + lines.length * lineHeight;
+  const lines = layoutTextLines(doc, text, width, indent);
+  let cursorY = y;
+  for (const line of lines) {
+    let cursorX = x;
+    for (const token of line) {
+      drawTextToken(doc, token, cursorX, cursorY);
+      cursorX += measureTextToken(doc, token);
+    }
+    cursorY += lineHeight;
+  }
+  return cursorY;
 }
 
 export async function exportSessionPdf(
@@ -390,7 +483,6 @@ export async function exportSessionPdf(
   y += 138;
 
   if (subtitle) {
-    doc.setFont("times", "italic");
     doc.setFontSize(14);
     doc.setTextColor(71, 85, 105);
     y = drawWrappedText(doc, subtitle, marginX, y, contentWidth, 18);
