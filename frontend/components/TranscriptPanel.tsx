@@ -24,10 +24,6 @@ export default function TranscriptPanel({ lines, partialLine }: TranscriptPanelP
 
   return (
     <section className="transcript-ticker-shell">
-      <div className="transcript-ticker-head">
-        <span className="transcript-ticker-label">Live Transcript</span>
-        <span className="pill muted">Streaming</span>
-      </div>
       <div className="transcript-ticker-track" ref={scrollRef}>
         {tickerText ? (
           <div className="transcript-ticker-line">{tickerText}</div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AppLayout from "../../components/AppLayout";
 import { getMe, listSessions, deleteSession } from "../../lib/api";
 
@@ -23,13 +24,16 @@ interface LiveNotesSnapshot {
   missedCue?: string;
 }
 
-export default function SessionsPage() {
+function SessionsPageContent() {
+  const searchParams = useSearchParams();
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [query, setQuery] = useState("");
   const [courseFilter, setCourseFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [authRequired, setAuthRequired] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const highlightedSessionId = searchParams.get("session");
+  const highlightedRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -48,6 +52,16 @@ export default function SessionsPage() {
     };
     init();
   }, []);
+
+  useEffect(() => {
+    if (!highlightedSessionId) return;
+    setQuery(highlightedSessionId);
+  }, [highlightedSessionId]);
+
+  useEffect(() => {
+    if (!highlightedSessionId || !highlightedRef.current) return;
+    highlightedRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightedSessionId, sessions, query, courseFilter, statusFilter]);
 
   const courseOptions = Array.from(
     new Map(
@@ -150,7 +164,11 @@ export default function SessionsPage() {
                   <p className="muted">No sessions match your filters.</p>
                 )}
                 {filteredSessions.map((session) => (
-                  <div key={session.id} className="course-card">
+                  <div
+                    key={session.id}
+                    ref={session.id === highlightedSessionId ? highlightedRef : null}
+                    className={`course-card ${session.id === highlightedSessionId ? "active" : ""}`}
+                  >
                     <div>
                       <strong>Session {session.id.slice(0, 8)}</strong>
                     </div>
@@ -223,5 +241,28 @@ export default function SessionsPage() {
         </div>
       </main>
     </AppLayout>
+  );
+}
+
+export default function SessionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppLayout>
+          <main className="page-shell">
+            <div className="page-card">
+              <div className="page-header">
+                <h1>Session History</h1>
+              </div>
+              <div className="context-card">
+                <p className="muted">Loading sessions...</p>
+              </div>
+            </div>
+          </main>
+        </AppLayout>
+      }
+    >
+      <SessionsPageContent />
+    </Suspense>
   );
 }

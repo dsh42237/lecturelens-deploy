@@ -3,14 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import TranscriptPanel from "../../components/TranscriptPanel";
 import LiveNotesPanel from "../../components/LiveNotesPanel";
-import FinalNotesPanel from "../../components/FinalNotesPanel";
 import StudentNotesPanel from "../../components/StudentNotesPanel";
 import SimulatorPanel from "../../components/SimulatorPanel";
 import LoggedOutHome from "../../components/LoggedOutHome";
 import { connectSession } from "../../lib/ws";
 import type {
   AudioFramePayload,
-  FinalNotesPayload,
   LiveNotesPayload,
   TranscriptLine
 } from "../../lib/types";
@@ -27,6 +25,7 @@ const SIMULATOR_MAX_BUFFERED_BYTES = 2_000_000;
 
 type CaptureSource = "desktop" | "phone" | "simulator";
 type SimulatorLoadState = "idle" | "loading" | "ready" | "error";
+type FinalizationState = "idle" | "stopping" | "generating" | "ready";
 
 function clampSpeed(value: number): number {
   if (!Number.isFinite(value)) return 1;
@@ -67,6 +66,16 @@ function isLocalHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".local");
 }
 
+function extractPlainTextFromHtml(html: string): string {
+  if (typeof window === "undefined") {
+    return html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const text = container.innerText || container.textContent || "";
+  return text.replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export default function HomePage() {
   const [authState, setAuthState] = useState<"checking" | "authenticated" | "logged_out">(
     "checking"
@@ -84,12 +93,14 @@ export default function HomePage() {
     { id: string; ts: number; notes: LiveNotesPayload }[]
   >([]);
   const [selectedLiveNotesId, setSelectedLiveNotesId] = useState<string | null>(null);
-  const [finalNotes, setFinalNotes] = useState<FinalNotesPayload | null>(null);
-  const [studentNotes, setStudentNotes] = useState("");
+  const [studentNotesHtml, setStudentNotesHtml] = useState("");
   const [sessionStartedAck, setSessionStartedAck] = useState(false);
   const [lastLiveNotesUpdate, setLastLiveNotesUpdate] = useState<number | null>(null);
   const [framesSent, setFramesSent] = useState(0);
   const [lastFrameMs, setLastFrameMs] = useState<number | null>(null);
+  const [finalizationState, setFinalizationState] = useState<FinalizationState>("idle");
+  const [completedSessionId, setCompletedSessionId] = useState<string | null>(null);
+  const finalizationStateRef = useRef<FinalizationState>("idle");
   const socketRef = useRef<WebSocket | null>(null);
   const [permissionState, setPermissionState] = useState<PermissionState | "unknown">("unknown");
   const [micLabel, setMicLabel] = useState<string>("(none)");
@@ -100,7 +111,6 @@ export default function HomePage() {
   const [selectedCourseId, setSelectedCourseId] = useState<number | "">("");
   const [courseStatus, setCourseStatus] = useState<string | null>(null);
   const [captureSource, setCaptureSource] = useState<CaptureSource>("desktop");
-  const [cameraPreviewDataUrl, setCameraPreviewDataUrl] = useState<string | null>(null);
   const [mobileBaseUrl, setMobileBaseUrl] = useState("");
   const [mobileApiBaseUrl, setMobileApiBaseUrl] = useState("");
   const [mobileAuthToken, setMobileAuthToken] = useState<string | null>(null);
@@ -239,8 +249,13 @@ export default function HomePage() {
   }, [simulatorSpeed]);
 
   useEffect(() => {
+    finalizationStateRef.current = finalizationState;
+  }, [finalizationState]);
+
+  useEffect(() => {
     if (!sessionId || authState !== "authenticated") return;
     const loadCourses = async () => {
+      setCourseStatus("Loading courses...");
       try {
         const items = await listCourses();
         setCourses(items);
@@ -317,8 +332,12 @@ export default function HomePage() {
         }
         setSimulatorRunning(false);
         setSessionId(generateId());
-        if (event) {
-          setStatus(`ws closed (${event.code})`);
+        if (
+          event &&
+          finalizationStateRef.current !== "ready" &&
+          finalizationStateRef.current !== "generating"
+        ) {
+          setStatus("Connection closed");
           console.log("[WS] closed", event.code, event.reason);
         }
       },
@@ -326,9 +345,11 @@ export default function HomePage() {
         setStatus(event.payload.message);
         if (event.payload.message === "session started") {
           setSessionStartedAck(true);
+          setFinalizationState("idle");
         }
         if (event.payload.message === "session stopped") {
           setSessionStartedAck(false);
+          setFinalizationState((prev) => (prev === "ready" ? prev : "generating"));
         }
       },
       onSimulatorProgress: (event) => {
@@ -362,11 +383,10 @@ export default function HomePage() {
         setSelectedLiveNotesId(entry.id);
       },
       onFinalNotes: (event) => {
-        setFinalNotes(event.payload);
-      },
-      onCameraPreview: (event) => {
-        const payload = event.payload;
-        setCameraPreviewDataUrl(`data:${payload.mimeType};base64,${payload.image}`);
+        void event;
+        setFinalizationState("ready");
+        setCompletedSessionId(sessionId);
+        setStatus("Final notes ready");
       },
       onErrorEvent: (event) => setStatus(event.payload.message)
     });
@@ -755,12 +775,13 @@ export default function HomePage() {
         setIsStopping(false);
         setSessionStartedAck(false);
         setLiveNotes(null);
-        setFinalNotes(null);
         setLastLiveNotesUpdate(null);
         setLiveNotesHistory([]);
         setSelectedLiveNotesId(null);
         setLines([]);
         setPartialLine(null);
+        setFinalizationState("idle");
+        setCompletedSessionId(null);
         setFramesSent(0);
         setLastFrameMs(null);
         setSimulatorProgressSec(0);
@@ -809,10 +830,13 @@ export default function HomePage() {
     setMicActive(false);
     if (isSessionRunning) {
       setIsStopping(true);
+      setFinalizationState("stopping");
+      setStatus("Stopping session and generating final notes...");
     }
 
     const socket = socketRef.current;
     if (socket && socket.readyState === WebSocket.OPEN && sessionId) {
+      const studentNotes = extractPlainTextFromHtml(studentNotesHtml);
       const stopMessage = {
         type: "stop_session",
         sessionId,
@@ -822,9 +846,6 @@ export default function HomePage() {
         }
       };
       socket.send(JSON.stringify(stopMessage));
-      if (captureSource === "phone") {
-        socket.close();
-      }
     } else if (socket && socket.readyState === WebSocket.OPEN) {
       socket.close();
     }
@@ -894,6 +915,23 @@ export default function HomePage() {
   const mobileQrUrl = mobileLink
     ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(mobileLink)}`
     : "";
+  const historyUrl = completedSessionId
+    ? `/sessions?session=${encodeURIComponent(completedSessionId)}`
+    : "/sessions";
+  const activityMessage =
+    finalizationState === "ready"
+      ? "Final notes are ready."
+      : finalizationState === "generating"
+        ? "Generating final notes. This can take a moment."
+        : finalizationState === "stopping"
+          ? "Stopping the session and packaging notes..."
+          : captureSource === "simulator" && simulatorLoadState === "loading"
+            ? "Preparing simulator audio..."
+            : captureSource === "phone" && !mobileAuthToken
+              ? "Preparing phone capture link..."
+              : isSessionRunning && !sessionStartedAck
+                ? "Starting session..."
+                : null;
 
   return (
     <AppLayout>
@@ -907,7 +945,11 @@ export default function HomePage() {
                   <span className={`pill muted ${connected ? "pill-live" : ""}`}>
                     {isSessionRunning ? "recording" : readyText}
                   </span>
-                  {status && <span className="pill muted">{status}</span>}
+                  {selectedCourse && (
+                    <span className="pill muted">
+                      {selectedCourse.course_code}
+                    </span>
+                  )}
                 </div>
                 <h1>Capture the lecture and keep the screen focused on what is live.</h1>
               </div>
@@ -984,6 +1026,22 @@ export default function HomePage() {
 
           <section className="live-workspace">
             <div className="live-main-column">
+              {(activityMessage || status) && (
+                <section className={`session-feedback ${finalizationState !== "idle" ? "working" : ""}`}>
+                  <div className="session-feedback-copy">
+                    <strong>{activityMessage ?? status}</strong>
+                    {status && activityMessage && status !== activityMessage && (
+                      <span>{status}</span>
+                    )}
+                  </div>
+                  {finalizationState === "ready" && completedSessionId && (
+                    <a className="secondary-btn" href={historyUrl}>
+                      View In Session History
+                    </a>
+                  )}
+                </section>
+              )}
+
               {captureSource === "phone" && mobileAuthToken && (
                 <section className="mobile-link-card live-inline-card">
                   <div className="phone-link-copy">
@@ -1096,14 +1154,11 @@ export default function HomePage() {
 
               <TranscriptPanel lines={lines} partialLine={partialLine} />
 
-              <div className="panel-card final-notes-card">
-                <FinalNotesPanel notes={finalNotes} />
-              </div>
               <div className="panel-card student-notes-card">
                 <StudentNotesPanel
-                  value={studentNotes}
-                  onChange={setStudentNotes}
-                  onClear={() => setStudentNotes("")}
+                  value={studentNotesHtml}
+                  onChange={setStudentNotesHtml}
+                  onClear={() => setStudentNotesHtml("")}
                   disabled={isStopping}
                 />
               </div>
