@@ -535,6 +535,11 @@ export default function HomePage() {
       },
       onFinalNotes: (event) => {
         void event;
+        setIsStopping(false);
+        setConnected(false);
+        setWsStatus("closed");
+        setSessionStartedAck(false);
+        setIsSessionRunning(false);
         setFinalizationState("ready");
         setCompletedSessionId(sessionId);
         setStatus("Final notes ready");
@@ -1130,6 +1135,24 @@ export default function HomePage() {
       (left, right) =>
         new Date(right.started_at).getTime() - new Date(left.started_at).getTime()
     );
+  const isFinalizing =
+    finalizationState === "stopping" || finalizationState === "generating";
+  const sessionStateLabel =
+    finalizationState === "ready"
+      ? "complete"
+      : isFinalizing
+        ? "finalizing"
+        : isSessionRunning
+          ? "recording"
+          : readyText;
+  const sessionActionLabel =
+    finalizationState === "stopping"
+      ? "Stopping..."
+      : finalizationState === "generating"
+        ? "Generating Notes..."
+        : isSessionRunning
+          ? "Stop Session"
+          : "Start Session";
   const activityMessage =
     finalizationState === "ready"
       ? "Final notes are ready."
@@ -1157,7 +1180,7 @@ export default function HomePage() {
                 <div className="meta-row">
                   <span className="pill">Live Session</span>
                   <span className={`pill muted ${connected ? "pill-live" : ""}`}>
-                    {isSessionRunning ? "recording" : readyText}
+                    {sessionStateLabel}
                   </span>
                   {selectedCourse && (
                     <span className="pill muted">
@@ -1222,9 +1245,9 @@ export default function HomePage() {
                     type="button"
                     onClick={() => (isSessionRunning ? handleStop() : handleStart())}
                     className={`primary-btn session-start-btn ${isSessionRunning ? "stop" : ""}`}
-                    disabled={isStopping}
+                    disabled={isStopping || isFinalizing}
                   >
-                    {isStopping ? "Stopping..." : isSessionRunning ? "Stop Session" : "Start Session"}
+                    {sessionActionLabel}
                   </button>
                   <div className="session-meta-line">
                     <span>{selectedCourse ? selectedCourse.course_code : "No course"}</span>
