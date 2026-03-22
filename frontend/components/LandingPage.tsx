@@ -15,7 +15,7 @@ export default function LandingPage() {
         padding: "14px 48px", borderBottom: "1px solid var(--border)",
         background: "var(--card)", position: "sticky", top: 0, zIndex: 100,
       }}>
-        <span className="sidebar-brand" style={{ fontSize: "1.2rem", color: "var(--accent)" }}>LectureLens</span>
+        <span className="sidebar-brand" style={{ fontSize: "1.2rem", color: "var(--accent)" }}>LiveLecture</span>
         <div style={{ display: "flex", alignItems: "center", gap: "28px" }}>
           <a href="#features" style={{ color: "var(--muted)", textDecoration: "none", fontSize: "0.9rem" }}>Features</a>
           <a href="#how-it-works" style={{ color: "var(--muted)", textDecoration: "none", fontSize: "0.9rem" }}>How it works</a>
@@ -51,7 +51,7 @@ export default function LandingPage() {
             effortlessly
           </h1>
           <p style={{ fontSize: "1.05rem", color: "var(--muted)", lineHeight: 1.7, marginBottom: "32px", maxWidth: "42ch" }}>
-            LectureLens listens, transcribes, and organises your notes in real-time — so you focus on learning, not scribbling.
+            LiveLecture listens, transcribes, and organises your notes in real-time — so you focus on learning, not scribbling.
           </p>
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "36px" }}>
             {["🎙️ Live transcription", "✨ AI notes", "📱 Mobile capture", "📚 Course organiser"].map(tag => (
@@ -73,8 +73,8 @@ export default function LandingPage() {
         {/* Right — Logo */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Image
-            src="/Logo.jpeg"
-            alt="LectureLens"
+            src="/livelecture-logo.svg"
+            alt="LiveLecture"
             width={340}
             height={340}
             style={{ borderRadius: "24px", boxShadow: "var(--shadow)" }}
@@ -139,7 +139,7 @@ export default function LandingPage() {
             {[
               { num: "01", title: "Create your profile", desc: "Sign up, add your institution, program, and courses for the semester." },
               { num: "02", title: "Start a session", desc: "Select your course, grant mic permission, and hit record. That's it." },
-              { num: "03", title: "Capture in real-time", desc: "LectureLens transcribes and builds your notes live as the lecture unfolds." },
+              { num: "03", title: "Capture in real-time", desc: "LiveLecture transcribes and builds your notes live as the lecture unfolds." },
               { num: "04", title: "Review & study", desc: "Session ends, final notes are ready. Structured, clean, and searchable." },
             ].map((s) => (
               <div key={s.num}>

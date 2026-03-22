@@ -12,9 +12,9 @@ export default function SessionPdfDocument({ session }: SessionPdfDocumentProps)
     <article className="pdf-export-document">
       <header className="pdf-export-hero">
         <div className="pdf-export-brand">
-          <img src="/Logo.jpeg" alt="" className="pdf-export-logo" />
+          <img src="/livelecture-logo.svg" alt="" className="pdf-export-logo" />
           <div>
-            <span className="pdf-export-kicker">LectureLens Study Pack</span>
+            <span className="pdf-export-kicker">LiveLecture Study Pack</span>
             <h1>{session.course_name ?? "Lecture Notes"}</h1>
             <p>{session.course_code ?? "Lecture session"}</p>
           </div>

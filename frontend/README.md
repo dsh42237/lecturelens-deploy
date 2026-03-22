@@ -1,4 +1,4 @@
-# LectureLens Frontend
+# LiveLecture Frontend
 
 ## Setup
 

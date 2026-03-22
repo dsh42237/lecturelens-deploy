@@ -3,7 +3,7 @@ import "katex/dist/katex.min.css";
 import "./globals.css";
 
 export const metadata = {
-  title: "LectureLens",
+  title: "LiveLecture",
   description: "Live transcript + notes scaffold"
 };
 

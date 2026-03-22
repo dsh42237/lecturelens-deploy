@@ -366,7 +366,7 @@ async function svgToPngDataUrl(svg: string, width: number, height: number) {
 function buildFileName(session: SessionInfo) {
   const course = (session.course_code ?? "lecture").replace(/[^a-z0-9_-]+/gi, "-");
   const date = new Date(session.started_at).toISOString().slice(0, 10);
-  return `LectureLens-${course}-${date}.pdf`;
+  return `LiveLecture-${course}-${date}.pdf`;
 }
 
 function drawChrome(
@@ -392,7 +392,7 @@ function drawChrome(
     setPdfFont(doc, "bold");
     doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
-    doc.text("LectureLens", 70, 30);
+    doc.text("LiveLecture", 70, 30);
     setPdfFont(doc, "normal");
     doc.setFontSize(10);
     doc.setTextColor(71, 85, 105);
@@ -403,7 +403,7 @@ function drawChrome(
     });
 
     doc.setFontSize(9);
-    doc.text("LectureLens Study Pack", 38, pageHeight - 26);
+    doc.text("LiveLecture Study Pack", 38, pageHeight - 26);
     doc.text(session.course_code ?? "Lecture session", pageWidth / 2, pageHeight - 26, {
       align: "center"
     });
@@ -501,8 +501,8 @@ export async function exportSessionPdf(
   const [{ jsPDF }] = await Promise.all([import("jspdf")]);
 
   const [logoDataUrl, watermarkDataUrl] = await Promise.all([
-    getImageDataUrl("/Logo.jpeg", 1),
-    getImageDataUrl("/Logo.jpeg", 0.05)
+    getImageDataUrl("/livelecture-logo.svg", 1),
+    getImageDataUrl("/livelecture-logo.svg", 0.05)
   ]);
 
   const doc = new jsPDF({

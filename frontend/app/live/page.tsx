@@ -1080,7 +1080,7 @@ export default function HomePage() {
       <main className="landing-shell">
         <div className="landing-container">
           <section className="landing-hero">
-            <p className="landing-kicker">LectureLens</p>
+            <p className="landing-kicker">LiveLecture</p>
             <h1>Preparing your workspace...</h1>
             <p>Checking account status and loading your session context.</p>
           </section>

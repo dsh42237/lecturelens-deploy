@@ -18,13 +18,13 @@ export default function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-brand-wrap">
         <Image
-          src="/Logo.jpeg"
-          alt="LectureLens logo"
+          src="/livelecture-logo.svg"
+          alt="LiveLecture logo"
           width={40}
           height={40}
           className="sidebar-logo"
         />
-        <div className="sidebar-brand">LectureLens</div>
+        <div className="sidebar-brand">LiveLecture</div>
       </div>
       <nav className="sidebar-nav">
         {navItems.map((item) => {

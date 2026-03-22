@@ -80,7 +80,7 @@ export default function LoggedOutHome() {
     {
       step: "04",
       title: "Stop and generate finals",
-      copy: "When the session ends, LectureLens turns the session into final notes using the lecture transcript and your own note additions."
+        copy: "When the session ends, LiveLecture turns the session into final notes using the lecture transcript and your own note additions."
     },
     {
       step: "05",
@@ -95,14 +95,14 @@ export default function LoggedOutHome() {
         <header className="landing-header">
           <div className="landing-header-brand">
             <Image
-              src="/Logo.jpeg"
-              alt="LectureLens logo"
+              src="/livelecture-logo.svg"
+              alt="LiveLecture logo"
               width={42}
               height={42}
               className="landing-header-logo"
               priority
             />
-            <div className="landing-brand">LectureLens</div>
+            <div className="landing-brand">LiveLecture</div>
           </div>
           <nav className="landing-nav">
             <a href="#features">Features</a>
@@ -119,10 +119,10 @@ export default function LoggedOutHome() {
             <div className="landing-hero-grid">
               <div>
                 <div className="landing-badge">AI lecture workflow for capture, notes, and testing</div>
-                <p className="landing-kicker">LectureLens</p>
+                <p className="landing-kicker">LiveLecture</p>
                 <h1>Capture lectures, add your own notes, and turn class into something studyable.</h1>
                 <p className="landing-lead">
-                  LectureLens brings transcript, live notes, final notes, student notes, mobile
+                  LiveLecture brings transcript, live notes, final notes, student notes, mobile
                   capture, and accelerated lecture simulation into one workspace so you can use the
                   same app in class and during development.
                 </p>
@@ -160,8 +160,8 @@ export default function LoggedOutHome() {
               <div className="landing-preview">
                 <div className="landing-logo-frame">
                   <Image
-                    src="/Logo.jpeg"
-                    alt="LectureLens logo"
+                    src="/livelecture-logo.svg"
+                    alt="LiveLecture logo"
                     width={220}
                     height={220}
                     className="landing-logo-image"
@@ -314,7 +314,7 @@ export default function LoggedOutHome() {
         <section className="landing-band landing-band-cta">
           <div className="landing-section-inner landing-cta-card">
             <div>
-              <div className="landing-eyebrow">Start Using LectureLens</div>
+              <div className="landing-eyebrow">Start Using LiveLecture</div>
               <h2>Open the app, pick a course, and run a live session or simulator pass.</h2>
               <p>
                 The current build already supports student notes, mobile capture, session history,
@@ -333,7 +333,7 @@ export default function LoggedOutHome() {
         </section>
 
         <footer className="landing-footer">
-          <div>LectureLens • AI lecture assistant for students</div>
+          <div>LiveLecture • AI lecture assistant for students</div>
           <div className="landing-footer-links">
             <a href="/profile">Sign in</a>
             <a href="/semesters">Semesters</a>
