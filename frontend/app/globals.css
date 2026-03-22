@@ -1336,26 +1336,6 @@ main {
   margin-top: 10px;
 }
 
-.course-history-session-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 18px;
-  align-items: start;
-}
-
-.course-history-session-main {
-  display: grid;
-  gap: 14px;
-  min-width: 0;
-}
-
-.course-history-session-rail {
-  min-width: 0;
-  position: sticky;
-  top: 20px;
-  align-self: start;
-}
-
 .course-history-timeline {
   display: grid;
   gap: 10px;
@@ -1579,10 +1559,12 @@ main {
   flex-direction: column;
   gap: 0;
   min-height: 0;
+  height: 100%;
 }
 
 .saved-live-notes-feed {
-  min-height: 420px;
+  flex: 1;
+  min-height: 0;
 }
 
 .saved-live-notes-rail--compact .panel-heading h2 {
@@ -1986,6 +1968,89 @@ main {
   max-width: 1100px;
   margin: 0 auto;
   padding: 28px 24px 60px;
+}
+
+.session-history-shell {
+  max-width: none;
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.session-history-main {
+  min-width: 0;
+}
+
+.session-history-rail-shell {
+  position: sticky;
+  top: 28px;
+  align-self: start;
+  height: calc(100vh - 56px);
+  min-height: 680px;
+}
+
+.session-history-rail-card {
+  height: 100%;
+  background: var(--card);
+  border-radius: 20px;
+  padding: 22px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+}
+
+.session-history-rail-header {
+  display: grid;
+  gap: 8px;
+}
+
+.session-history-rail-header h2 {
+  margin: 0;
+  font-family: "Space Grotesk", "DM Sans", sans-serif;
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.session-history-rail-header p {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.session-history-rail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.session-history-rail-empty {
+  flex: 1;
+  min-height: 0;
+  border: 1px dashed #dbe4f0;
+  border-radius: 18px;
+  padding: 20px;
+  background: #f8fafc;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.session-history-rail-empty h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.session-history-rail-empty p {
+  margin: 0;
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .page-card {
@@ -2855,12 +2920,14 @@ main {
     align-items: flex-start;
   }
 
-  .course-history-session-layout {
+  .session-history-shell {
     grid-template-columns: 1fr;
   }
 
-  .course-history-session-rail {
+  .session-history-rail-shell {
     position: static;
+    height: auto;
+    min-height: 0;
   }
 
   .session-document-actions {

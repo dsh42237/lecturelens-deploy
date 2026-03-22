@@ -36,8 +36,9 @@ function SessionsPageContent() {
   const [authRequired, setAuthRequired] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [regeneratingSessionId, setRegeneratingSessionId] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const highlightedSessionId = searchParams.get("session");
-  const highlightedRef = useRef<HTMLDivElement | null>(null);
+  const selectedRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const init = async () => {
@@ -63,9 +64,9 @@ function SessionsPageContent() {
   }, [highlightedSessionId]);
 
   useEffect(() => {
-    if (!highlightedSessionId || !highlightedRef.current) return;
-    highlightedRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [highlightedSessionId, sessions, query, courseFilter, statusFilter]);
+    if (!highlightedSessionId) return;
+    setSelectedSessionId(highlightedSessionId);
+  }, [highlightedSessionId]);
 
   const courseOptions = Array.from(
     new Map(
@@ -102,10 +103,51 @@ function SessionsPageContent() {
     return haystack.includes(q);
   });
 
+  const hasLiveNotes = (item: SessionItem) =>
+    Array.isArray(item.live_notes_history) && item.live_notes_history.length > 0;
+
+  useEffect(() => {
+    if (filteredSessions.length === 0) {
+      setSelectedSessionId(null);
+      return;
+    }
+
+    const selectedSession = filteredSessions.find((item) => item.id === selectedSessionId);
+    if (selectedSession && hasLiveNotes(selectedSession)) {
+      return;
+    }
+
+    const highlightedLiveSession =
+      highlightedSessionId &&
+      filteredSessions.find((item) => item.id === highlightedSessionId && hasLiveNotes(item));
+    const firstLiveSession = filteredSessions.find((item) => hasLiveNotes(item));
+    const highlightedSession =
+      highlightedSessionId && filteredSessions.find((item) => item.id === highlightedSessionId);
+    const fallbackSession =
+      highlightedLiveSession ?? firstLiveSession ?? highlightedSession ?? filteredSessions[0];
+
+    if (fallbackSession && fallbackSession.id !== selectedSessionId) {
+      setSelectedSessionId(fallbackSession.id);
+    }
+  }, [filteredSessions, highlightedSessionId, selectedSessionId]);
+
+  useEffect(() => {
+    if (!selectedRef.current) return;
+    selectedRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [selectedSessionId]);
+
+  const selectedSession =
+    filteredSessions.find((item) => item.id === selectedSessionId) ?? null;
+  const selectedEntries = selectedSession?.live_notes_history?.map((entry, idx) => ({
+    id: `${selectedSession.id}-live-${entry.timestamp}-${idx}`,
+    ts: entry.timestamp,
+    notes: entry.notes,
+  })) ?? [];
+
   return (
     <AppLayout>
-      <main className="page-shell">
-        <div className="page-card">
+      <main className="page-shell session-history-shell">
+        <div className="page-card session-history-main">
           <div className="page-header">
             <h1>Session History</h1>
           </div>
@@ -170,8 +212,9 @@ function SessionsPageContent() {
                 {filteredSessions.map((session) => (
                   <div
                     key={session.id}
-                    ref={session.id === highlightedSessionId ? highlightedRef : null}
-                    className={`course-card ${session.id === highlightedSessionId ? "active" : ""}`}
+                    ref={session.id === selectedSessionId ? selectedRef : null}
+                    className={`course-card ${session.id === selectedSessionId ? "active" : ""}`}
+                    onClick={() => setSelectedSessionId(session.id)}
                   >
                     <div>
                       <strong>Session {session.id.slice(0, 8)}</strong>
@@ -188,14 +231,19 @@ function SessionsPageContent() {
                       </div>
                     )}
                     <div className="course-actions">
-                      <a className="secondary-btn" href={`/sessions/${encodeURIComponent(session.id)}`}>
+                      <a
+                        className="secondary-btn"
+                        href={`/sessions/${encodeURIComponent(session.id)}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         View Notes
                       </a>
                       <button
                         type="button"
                         className="ghost-btn"
                         disabled={regeneratingSessionId === session.id}
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          e.stopPropagation();
                           try {
                             setStatus(null);
                             setRegeneratingSessionId(session.id);
@@ -220,7 +268,8 @@ function SessionsPageContent() {
                       <button
                         type="button"
                         className="ghost-btn"
-                        onClick={async () => {
+                        onClick={async (e) => {
+                          e.stopPropagation();
                           await deleteSession(session.id);
                           const items = await listSessions();
                           setSessions(items);
@@ -229,42 +278,23 @@ function SessionsPageContent() {
                         Delete session
                       </button>
                     </div>
-
-                    <div className="course-history-session-layout">
-                      <div className="course-history-session-main">
-                        {session.final_notes_text && (
-                          <div className="context-inline session-notes-render">
-                            <MarkdownNotes content={session.final_notes_text} />
-                          </div>
-                        )}
-                        {typeof session.final_notes_versions_count === "number" &&
-                          session.final_notes_versions_count > 0 && (
-                            <div className="muted">
-                              Previous final-note versions saved: {session.final_notes_versions_count}
-                            </div>
-                          )}
-                        {session.student_notes_text && (
-                          <details className="session-notes-details">
-                            <summary>Student notes</summary>
-                            <pre className="context-inline">{session.student_notes_text}</pre>
-                          </details>
-                        )}
+                    {session.final_notes_text && (
+                      <div className="context-inline session-notes-render">
+                        <MarkdownNotes content={session.final_notes_text} />
                       </div>
-
-                      {session.live_notes_history && session.live_notes_history.length > 0 && (
-                        <aside className="course-history-session-rail">
-                          <SavedLiveNotesRail
-                            entries={session.live_notes_history.map((entry, idx) => ({
-                              id: `${session.id}-live-${entry.timestamp}-${idx}`,
-                              ts: entry.timestamp,
-                              notes: entry.notes,
-                            }))}
-                            title="Live Notes"
-                            compact
-                          />
-                        </aside>
+                    )}
+                    {typeof session.final_notes_versions_count === "number" &&
+                      session.final_notes_versions_count > 0 && (
+                        <div className="muted">
+                          Previous final-note versions saved: {session.final_notes_versions_count}
+                        </div>
                       )}
-                    </div>
+                    {session.student_notes_text && (
+                      <details className="session-notes-details" onClick={(e) => e.stopPropagation()}>
+                        <summary>Student notes</summary>
+                        <pre className="context-inline">{session.student_notes_text}</pre>
+                      </details>
+                    )}
                   </div>
                 ))}
               </div>
@@ -273,6 +303,44 @@ function SessionsPageContent() {
 
           {status && <div className="inline-error">{status}</div>}
         </div>
+
+        {!authRequired && (
+          <aside className="session-history-rail-shell">
+            <div className="session-history-rail-card">
+              {filteredSessions.length === 0 && (
+                <div className="session-history-rail-empty">
+                  <h3>No sessions in view</h3>
+                  <p>Adjust your filters or search to load a session into the live-notes rail.</p>
+                </div>
+              )}
+
+              {filteredSessions.length > 0 && selectedSession && (
+                <>
+                  <div className="session-history-rail-header">
+                    <span className="pill">Live Notes</span>
+                    <h2>{selectedSession.course_code ?? `Session ${selectedSession.id.slice(0, 8)}`}</h2>
+                    <p>
+                      {selectedSession.course_name ?? "Saved lecture session"}
+                    </p>
+                    <div className="session-history-rail-meta">
+                      <span>Session {selectedSession.id.slice(0, 8)}</span>
+                      <span>{new Date(selectedSession.started_at).toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {selectedEntries.length > 0 ? (
+                    <SavedLiveNotesRail entries={selectedEntries} title="Live Notes" />
+                  ) : (
+                    <div className="session-history-rail-empty">
+                      <h3>No live notes saved</h3>
+                      <p>This session does not have saved live-note cards to display in the rail.</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </aside>
+        )}
       </main>
     </AppLayout>
   );
