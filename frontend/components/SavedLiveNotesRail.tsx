@@ -14,6 +14,7 @@ interface SavedLiveNotesRailProps {
   title?: string;
   showLatestBadge?: boolean;
   compact?: boolean;
+  reverseOrder?: boolean;
 }
 
 export default function SavedLiveNotesRail({
@@ -21,8 +22,9 @@ export default function SavedLiveNotesRail({
   title = "Live Notes",
   showLatestBadge = true,
   compact = false,
+  reverseOrder = true,
 }: SavedLiveNotesRailProps) {
-  const orderedEntries = [...entries].reverse();
+  const orderedEntries = reverseOrder ? [...entries].reverse() : [...entries];
 
   return (
     <section className={`saved-live-notes-rail${compact ? " saved-live-notes-rail--compact" : ""}`}>

@@ -329,7 +329,11 @@ function SessionsPageContent() {
                   </div>
 
                   {selectedEntries.length > 0 ? (
-                    <SavedLiveNotesRail entries={selectedEntries} title="Live Notes" />
+                    <SavedLiveNotesRail
+                      entries={selectedEntries}
+                      title="Live Notes"
+                      reverseOrder={false}
+                    />
                   ) : (
                     <div className="session-history-rail-empty">
                       <h3>No live notes saved</h3>
