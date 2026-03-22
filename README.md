@@ -1,46 +1,69 @@
-# LectureLens — V1.0.1
+# LiveLecture
 
-Monorepo for LectureLens:
-- `frontend/`: Next.js + TypeScript UI (live transcript + live notes + final notes)
-- `backend/`: FastAPI WebSocket service (Silero VAD + faster-whisper)
-- `docs/`: project documentation
+Monorepo for LiveLecture:
+- `frontend/`: Next.js app for live sessions, session history, simulator mode, and study notes
+- `backend/`: FastAPI + WebSocket backend for transcription, live notes, final notes, and whiteboard vision
 
-## Current progress
-- Live microphone streaming from browser to backend (16kHz float32 frames).
-- Backend Silero VAD streaming with faster-whisper transcription.
-- Live notes stream during lecture + final notes generated on stop.
-- Live notes snapshots are stored per session and visible in Session History.
-- Desktop can generate a QR mobile capture link (`/mobile`) to use phone mic/camera over HTTPS tunnels.
-- Phone camera frames can be previewed on the desktop during a session (90-degree rotated for landscape viewing).
-- Improved UI layout with scrollable transcript/notes panels.
+## What the app does
 
-## Project Status (V1.0.1)
-- Live transcription works.
-- Backend VAD + Whisper streaming works.
-- Live notes + final notes streaming works (LLM-backed).
-- Session history stores final notes + live notes timeline.
-- Ollama supported locally (optional).
+LiveLecture turns a lecture session into:
+- live transcript
+- live notes cards
+- student-written notes
+- final study notes after the session ends
+- saved session history per course
 
-Known limitations:
-- LLM notes may lag due to batching.
-- Notes quality depends on transcript clarity.
-- Phone mic/camera generally require HTTPS on mobile browsers (LAN HTTP often blocked).
-- Camera pipeline is currently preview-only (no OCR / board understanding yet).
+Current capture modes:
+- `Desktop mic`
+- `Phone mic/camera`
+- `Audio simulator`
+- `Transcript simulator`
 
-Planned next versions:
-- V1.1: Better notes structuring + topic clustering.
-- V1.2: Student personalization (quiz feedback loop).
-- V2.0: Camera/board capture + diagram generation.
+## Current features
 
-## Quick Start (First Run)
+- Real-time mic streaming from browser to backend at `16kHz`
+- Silero VAD + Whisper-based transcription
+- LLM-generated live notes during the session
+- Final notes generated after stop
+- Student notes editor on the live session page
+- Session history with saved final notes and live notes timeline
+- Simulator mode:
+  - upload lecture audio
+  - paste transcript directly
+- Phone capture flow with QR code
+- Phone camera preview on the live page
+- Whiteboard vision pipeline for phone sessions:
+  - board snapshots sampled in the background
+  - server-side board change filtering
+  - math / steps / diagram clues extracted from whiteboard photos
+  - extracted board context included in final note generation
 
-Prereqs:
-- Node 18+ (or 20)
+## Tech stack
+
+Frontend:
+- Next.js 14
+- TypeScript
+- Tiptap
+- KaTeX
+- Mermaid
+
+Backend:
+- FastAPI
+- WebSockets
+- faster-whisper
+- Silero VAD
+- OpenAI Responses API
+- OpenCV
+
+## Local development
+
+### Prerequisites
+
+- Node 18+ or 20+
 - Python 3.11+
-- OpenAI API key (for LLM notes)
-- (Optional) `brew` on macOS
+- OpenAI API key
 
-### 1) Backend (FastAPI)
+### Backend setup
 
 ```bash
 cd backend
@@ -48,23 +71,17 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 cp .env.example .env
-# edit backend/.env and set OPENAI_API_KEY=
-uvicorn app.main:app --reload --app-dir src --port 8000
 ```
 
-### 2) Frontend (Next.js)
+Set at least:
 
-```bash
-cd frontend
-npm install
-npm run dev
+```env
+OPENAI_API_KEY=...
+NOTES_MODE=llm
+LLM_PROVIDER=openai
 ```
 
-Open `http://localhost:3000`.
-
-## Quick Start (Next Time)
-
-Terminal 1 (backend):
+Run backend:
 
 ```bash
 cd backend
@@ -72,67 +89,144 @@ source .venv/bin/activate
 uvicorn app.main:app --reload --app-dir src --port 8000
 ```
 
-Terminal 2 (frontend):
+### Frontend setup
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+## Running the project later
+
+Terminal 1:
+
+```bash
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --reload --app-dir src --port 8000
+```
+
+Terminal 2:
 
 ```bash
 cd frontend
 npm run dev
 ```
 
-## Phone Capture (Mic/Camera via HTTPS)
+## Main user flows
 
-Mobile browsers often block mic/camera on plain `http://LAN-IP`. Use HTTPS tunnels.
+### 1. Live session
 
-### 1) Install Cloudflare tunnel client (macOS)
+1. Pick a course
+2. Choose capture source
+3. Start session
+4. Watch transcript and live notes update
+5. Stop session
+6. Review final notes in Session History
 
-```bash
-brew install cloudflared
+### 2. Phone mic/camera capture
+
+1. On the live page choose `Phone mic/camera`
+2. Scan the QR code
+3. Open the mobile page on the phone
+4. Enable mic/camera on the phone
+5. Start the session from desktop
+
+Production should work directly over HTTPS.
+
+For local development, mobile capture may still require manual tunnel URLs depending on browser/security restrictions.
+
+### 3. Audio simulator
+
+Two simulator modes are supported:
+
+- `Audio upload`
+  - upload a lecture recording
+  - backend transcribes it and generates live/final notes
+
+- `Transcript paste`
+  - paste transcript text directly
+  - skips speech-to-text
+  - still generates live notes and final notes through the normal pipeline
+
+## Whiteboard vision flow
+
+Phone sessions can now use periodic camera snapshots to improve math-heavy final notes.
+
+Current flow:
+
+1. Phone sends `camera_frame` websocket events
+2. Backend always rebroadcasts preview frames
+3. Backend samples board analysis roughly every `90s`
+4. Backend skips analysis if the board has not changed enough
+5. Server crops the board, creates close-up regions, and calls OpenAI vision
+6. Vision returns structured board context:
+   - title
+   - summary
+   - equations in LaTeX
+   - solve steps
+   - diagram / structure hints
+   - uncertain readings
+7. Final notes use transcript + student notes + board context
+
+This is intentionally not done on every frame, to control token usage and cost.
+
+## Deployment
+
+The project is currently deployed on Railway as separate frontend and backend services.
+
+Typical env vars:
+
+Backend:
+
+```env
+OPENAI_API_KEY=...
+JWT_SECRET=...
+COOKIE_SECURE=1
+COOKIE_SAMESITE=none
+CORS_ORIGINS=https://your-frontend-domain
 ```
 
-### 2) Start HTTPS tunnels (two terminals)
+Frontend:
 
-Terminal 3 (frontend tunnel):
-
-```bash
-cloudflared tunnel --url http://localhost:3000
+```env
+NEXT_PUBLIC_API_BASE=https://your-backend-domain
+NEXT_PUBLIC_WS_BASE=wss://your-backend-domain
 ```
 
-Terminal 4 (backend tunnel):
+## Notes quality and limitations
 
-```bash
-cloudflared tunnel --url http://localhost:8000
-```
+- Final note quality still depends heavily on transcript quality
+- Whiteboard math extraction is much better than plain OCR, but not perfect
+- Diagram capture currently feeds diagram hints into final notes rather than full diagram reconstruction
+- Live notes and final notes still depend on real model latency, so simulator speed is bounded by backend processing throughput
+- Mermaid generation in notes is prompt-dependent and may be omitted when uncertain
 
-### 3) Connect phone to the session
+## Useful paths
 
-In the desktop app (Live Session page):
-1. Set **Capture source** = `Phone mic/camera`.
-2. Set **Phone base URL** = the *frontend* `https://...trycloudflare.com` printed by terminal 3.
-3. Set **Phone WS base URL (HTTPS)** = the *backend* `https://...trycloudflare.com` printed by terminal 4.
-4. Click **Refresh QR** once and scan it on your phone.
-5. On phone, tap **Enable Mic/Camera** once (permissions). After that, desktop Start/Stop controls the session and phone auto-streams when running.
+Frontend live page:
+- [frontend/app/live/page.tsx](/Users/harman/advproject/frontend/app/live/page.tsx)
 
-## Environment Notes
+Backend websocket session flow:
+- [backend/src/app/api/ws.py](/Users/harman/advproject/backend/src/app/api/ws.py)
 
-- Backend reads env from `backend/.env` via `python-dotenv` (see `backend/src/app/main.py`).
-- Notes LLM code lives in `backend/src/app/services/notes`.
+Whiteboard vision service:
+- [backend/src/app/services/vision/whiteboard_service.py](/Users/harman/advproject/backend/src/app/services/vision/whiteboard_service.py)
 
-Optional Whisper model override:
-
-```bash
-export WHISPER_MODEL=small.en
-```
+Final notes prompt:
+- [backend/src/app/services/notes/prompt_templates.py](/Users/harman/advproject/backend/src/app/services/notes/prompt_templates.py)
 
 ## Troubleshooting
 
-- macOS mic permissions: System Settings → Privacy & Security → Microphone.
-- If notes are empty: confirm `OPENAI_API_KEY` is set in `backend/.env` and restart backend.
-- Backend `GET /` returns 404 by design; the UI runs on the frontend.
-
-## Next step (video understanding)
-
-We now reliably receive phone camera frames on the backend and can preview them on desktop. Next is processing those frames in Python for blackboard/whiteboard understanding. Likely Phase 2 libraries/tools:
-- `opencv-python`: frame transforms, stabilization, motion detection, perspective correction.
-- OCR: `paddleocr` (strong), `easyocr` (simple), or `tesseract` (baseline).
-- Text region detection / layout: `layoutparser`, lightweight YOLO/segmentation (optional).
-- Optional LLM vision pass (later) on selected key frames (not every frame).
+- If login fails in production, check backend `CORS_ORIGINS`, `COOKIE_SECURE`, and `COOKIE_SAMESITE`
+- If final notes fall back to weak output, check `OPENAI_API_KEY` and backend logs
+- If phone media fails locally, use HTTPS/tunnel URLs or test on production
+- If the backend says `Address already in use`, another local process is already running on that port
+- `GET /` on backend returning `404` is expected; use `/health` for a health check
