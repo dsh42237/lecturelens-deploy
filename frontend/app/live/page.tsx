@@ -6,12 +6,14 @@ import LiveNotesPanel from "../../components/LiveNotesPanel";
 import StudentNotesPanel from "../../components/StudentNotesPanel";
 import SimulatorPanel from "../../components/SimulatorPanel";
 import MarkdownNotes from "../../components/MarkdownNotes";
+import WhiteboardInsightPanel from "../../components/WhiteboardInsightPanel";
 import LoggedOutHome from "../../components/LoggedOutHome";
 import { connectSession } from "../../lib/ws";
 import type {
   AudioFramePayload,
   LiveNotesPayload,
-  TranscriptLine
+  TranscriptLine,
+  WhiteboardInsightPayload,
 } from "../../lib/types";
 import AppLayout from "../../components/AppLayout";
 import { createMobileLink, getMe, listCourses, listSessions } from "../../lib/api";
@@ -40,6 +42,7 @@ interface PersistedLiveSessionState {
   partialLine: TranscriptLine | null;
   liveNotes: LiveNotesPayload | null;
   liveNotesHistory: { id: string; ts: number; notes: LiveNotesPayload }[];
+  whiteboardInsight: WhiteboardInsightPayload | null;
   simulatorMode: SimulatorMode;
   simulatorTranscriptText: string;
   updatedAt: number;
@@ -105,6 +108,7 @@ export default function HomePage() {
   const [liveNotesHistory, setLiveNotesHistory] = useState<
     { id: string; ts: number; notes: LiveNotesPayload }[]
   >([]);
+  const [whiteboardInsight, setWhiteboardInsight] = useState<WhiteboardInsightPayload | null>(null);
   const [selectedLiveNotesId, setSelectedLiveNotesId] = useState<string | null>(null);
   const [studentNotesHtml, setStudentNotesHtml] = useState("");
   const [sessionStartedAck, setSessionStartedAck] = useState(false);
@@ -180,6 +184,7 @@ export default function HomePage() {
           setPartialLine(saved.partialLine ?? null);
           setLiveNotes(saved.liveNotes ?? null);
           setLiveNotesHistory(Array.isArray(saved.liveNotesHistory) ? saved.liveNotesHistory : []);
+          setWhiteboardInsight(saved.whiteboardInsight ?? null);
           setSelectedLiveNotesId(
             Array.isArray(saved.liveNotesHistory) && saved.liveNotesHistory.length > 0
               ? saved.liveNotesHistory[saved.liveNotesHistory.length - 1]?.id ?? null
@@ -303,6 +308,7 @@ export default function HomePage() {
         partialLine,
         liveNotes,
         liveNotesHistory: liveNotesHistory.slice(-25),
+        whiteboardInsight,
         simulatorMode,
         simulatorTranscriptText,
         updatedAt: Date.now()
@@ -327,7 +333,8 @@ export default function HomePage() {
     sessionId,
     simulatorMode,
     simulatorTranscriptText,
-    studentNotesHtml
+    studentNotesHtml,
+    whiteboardInsight
   ]);
 
   useEffect(() => {
@@ -476,6 +483,7 @@ export default function HomePage() {
           simulatorTimerRef.current = null;
         }
         setSimulatorRunning(false);
+        setWhiteboardInsight(null);
         if (!isPageUnloadingRef.current) {
           setSessionId(generateId());
         }
@@ -532,6 +540,9 @@ export default function HomePage() {
           return next;
         });
         setSelectedLiveNotesId(entry.id);
+      },
+      onWhiteboardInsight: (event) => {
+        setWhiteboardInsight(event.payload);
       },
       onFinalNotes: (event) => {
         void event;
@@ -953,6 +964,7 @@ export default function HomePage() {
         setLiveNotes(null);
         setLastLiveNotesUpdate(null);
         setLiveNotesHistory([]);
+        setWhiteboardInsight(null);
         setSelectedLiveNotesId(null);
         setLines([]);
         setPartialLine(null);
@@ -1387,6 +1399,10 @@ export default function HomePage() {
                 void prepareSimulatorFile(file);
               }}
             />
+          )}
+
+          {captureSource === "phone" && (
+            <WhiteboardInsightPanel insight={whiteboardInsight} />
           )}
 
           <section className="live-transcript-band">

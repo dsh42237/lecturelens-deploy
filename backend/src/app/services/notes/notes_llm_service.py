@@ -593,9 +593,11 @@ def generate_live_notes_json(
     return data
 
 
-def generate_final_notes_text(full_transcript: str, student_notes: str = "") -> str:
+def generate_final_notes_text(
+    full_transcript: str, student_notes: str = "", whiteboard_context: str = ""
+) -> str:
     prepared_transcript = _prepare_final_transcript(full_transcript)
-    prompt = build_final_prompt(prepared_transcript, student_notes)
+    prompt = build_final_prompt(prepared_transcript, student_notes, whiteboard_context)
     timeout_seconds = int(os.getenv("FINAL_NOTES_TIMEOUT_SECONDS", "90"))
     max_retries = int(os.getenv("FINAL_NOTES_RETRIES", "2"))
     text_response = _request_llm_text(

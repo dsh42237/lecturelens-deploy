@@ -9,6 +9,7 @@ from difflib import SequenceMatcher
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
+import cv2
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketDisconnect as StarletteWebSocketDisconnect
@@ -16,13 +17,21 @@ from starlette.websockets import WebSocketDisconnect as StarletteWebSocketDiscon
 from app.core.events import build_event
 from datetime import datetime
 
-from app.core.schemas import DefinitionItem, KeyTerm, NotesDeltaPayload, NotesTopicDelta, StatusPayload
+from app.core.schemas import (
+    DefinitionItem,
+    KeyTerm,
+    NotesDeltaPayload,
+    NotesTopicDelta,
+    StatusPayload,
+    WhiteboardInsightPayload,
+)
 from app.core.db import get_db
 from app.core.security import decode_token
 from app.services.stt.whisper_service import transcribe
 from app.services.vad.silero_vad_service import create_vad_iterator
 from app.services.notes.notes_llm_service import generate_final_notes_text, generate_live_notes_json
 from app.services.notes.normalize import normalize_notes_state
+from app.services.vision.whiteboard_service import analyze_whiteboard_image_bytes, build_whiteboard_context
 
 router = APIRouter()
 SESSION_CLIENTS: dict[str, set[WebSocket]] = {}
@@ -32,6 +41,10 @@ SESSION_TRANSCRIPT_BUFFER: dict[str, str] = {}
 SESSION_LIVE_PENDING: dict[str, str] = {}
 SESSION_LIVE_STATE: dict[str, dict[str, Any]] = {}
 SESSION_LIVE_HISTORY: dict[str, list[dict[str, Any]]] = {}
+SESSION_WHITEBOARD_INSIGHTS: dict[str, list[dict[str, Any]]] = {}
+SESSION_WHITEBOARD_SIGNATURES: dict[str, np.ndarray] = {}
+SESSION_WHITEBOARD_LAST_ANALYSIS: dict[str, float] = {}
+SESSION_WHITEBOARD_TASKS: dict[str, asyncio.Task] = {}
 MOBILE_LINK_SCOPE = "mobile_link"
 
 SESSION_COOKIE_NAME = "session"
@@ -59,6 +72,9 @@ MAX_STUDENT_NOTES_CHARS = int(os.getenv("MAX_STUDENT_NOTES_CHARS", "4000"))
 RECONNECT_GRACE_SECONDS = int(os.getenv("SESSION_RECONNECT_GRACE_SECONDS", "20"))
 LLM_EVERY_N_BATCHES = int(os.getenv("LLM_EVERY_N_BATCHES", "2"))
 DISABLE_RULES = os.getenv("DISABLE_RULES", "0") == "1"
+WHITEBOARD_ANALYSIS_INTERVAL_SECONDS = int(os.getenv("WHITEBOARD_ANALYSIS_INTERVAL_SECONDS", "90"))
+WHITEBOARD_MIN_CHANGE_RATIO = float(os.getenv("WHITEBOARD_MIN_CHANGE_RATIO", "0.025"))
+WHITEBOARD_MAX_INSIGHTS = int(os.getenv("WHITEBOARD_MAX_INSIGHTS", "6"))
 
 
 @dataclass
@@ -660,8 +676,10 @@ async def broadcast_session_event(session_id: str, payload: dict) -> bool:
     return ok_any
 
 
-def build_final_fallback_notes(transcript: str, student_notes: str = "") -> str:
-    combined_source = transcript.strip() or student_notes.strip()
+def build_final_fallback_notes(
+    transcript: str, student_notes: str = "", whiteboard_context: str = ""
+) -> str:
+    combined_source = transcript.strip() or whiteboard_context.strip() or student_notes.strip()
     sentences = [s.strip() for s in re.split(r"[.!?]+", combined_source) if s.strip()]
     topic_title, bullets, _terms, _questions, definitions, _steps = build_notes_summary(combined_source)
     lines = [
@@ -679,6 +697,13 @@ def build_final_fallback_notes(transcript: str, student_notes: str = "") -> str:
         lines.append("## Student Focus")
         for note_line in [line.strip() for line in student_notes.splitlines() if line.strip()][:4]:
             lines.append(f"- {note_line}")
+    if whiteboard_context.strip():
+        whiteboard_lines = [line.strip(" -") for line in whiteboard_context.splitlines() if line.strip()]
+        if whiteboard_lines:
+            lines.append("")
+            lines.append("## Whiteboard Clues")
+            for line in whiteboard_lines[:5]:
+                lines.append(f"- {line}")
     if definitions:
         lines.append("")
         lines.append("## Definitions")
@@ -779,6 +804,128 @@ def configure_session_mode(state: SessionState, capture_source: str, playback_sp
     else:
         state.max_speech_ms = MAX_SPEECH_MS
         state.live_notes_audio_interval_ms = LIVE_NOTES_INTERVAL_SECONDS * 1000
+
+
+def build_camera_signature(image_bytes: bytes) -> np.ndarray | None:
+    np_bytes = np.frombuffer(image_bytes, dtype=np.uint8)
+    image = cv2.imdecode(np_bytes, cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        return None
+    resized = cv2.resize(image, (48, 48), interpolation=cv2.INTER_AREA)
+    blurred = cv2.GaussianBlur(resized, (5, 5), 0)
+    return blurred.astype(np.float32) / 255.0
+
+
+def camera_frame_changed(previous: np.ndarray | None, current: np.ndarray | None) -> bool:
+    if previous is None or current is None:
+        return True
+    delta = np.mean(np.abs(previous - current))
+    return float(delta) >= WHITEBOARD_MIN_CHANGE_RATIO
+
+
+async def await_pending_whiteboard_analysis(session_id: str) -> None:
+    pending = SESSION_WHITEBOARD_TASKS.get(session_id)
+    if not pending or pending.done() or pending is asyncio.current_task():
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(pending), timeout=25)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        return
+    except Exception:
+        return
+
+
+async def maybe_schedule_whiteboard_analysis(
+    *,
+    session_id: str,
+    state: SessionState,
+    image_b64: str,
+    mime_type: str,
+    broadcast: Callable[[dict], Awaitable[bool]],
+) -> None:
+    if state.capture_source != "phone" or not state.running:
+        return
+    if os.getenv("OPENAI_API_KEY", "").strip() == "":
+        return
+
+    now = time.time()
+    last_analysis = SESSION_WHITEBOARD_LAST_ANALYSIS.get(session_id, 0.0)
+    if now - last_analysis < WHITEBOARD_ANALYSIS_INTERVAL_SECONDS:
+        return
+
+    existing_task = SESSION_WHITEBOARD_TASKS.get(session_id)
+    if existing_task and not existing_task.done():
+        return
+
+    try:
+        image_bytes = base64.b64decode(image_b64, validate=True)
+    except Exception:
+        return
+
+    current_signature = build_camera_signature(image_bytes)
+    previous_signature = SESSION_WHITEBOARD_SIGNATURES.get(session_id)
+    if previous_signature is not None and not camera_frame_changed(previous_signature, current_signature):
+        return
+
+    SESSION_WHITEBOARD_SIGNATURES[session_id] = current_signature
+    SESSION_WHITEBOARD_LAST_ANALYSIS[session_id] = now
+    await broadcast(
+        build_event(
+            "whiteboard_insight",
+            session_id,
+            WhiteboardInsightPayload(status="analyzing", captureTimestamp=int(now * 1000)),
+        ).model_dump()
+    )
+
+    async def run_analysis() -> None:
+        try:
+            insight = await asyncio.to_thread(analyze_whiteboard_image_bytes, image_bytes, mime_type)
+            insight["captureTimestamp"] = int(time.time() * 1000)
+            history = SESSION_WHITEBOARD_INSIGHTS.setdefault(session_id, [])
+            summary_key = " ".join(
+                [
+                    str(insight.get("title") or "").strip().lower(),
+                    str(insight.get("summary") or "").strip().lower(),
+                ]
+            ).strip()
+            previous_key = ""
+            if history:
+                latest = history[-1]
+                previous_key = " ".join(
+                    [
+                        str(latest.get("title") or "").strip().lower(),
+                        str(latest.get("summary") or "").strip().lower(),
+                    ]
+                ).strip()
+            if summary_key and summary_key != previous_key:
+                history.append(insight)
+                if len(history) > WHITEBOARD_MAX_INSIGHTS:
+                    SESSION_WHITEBOARD_INSIGHTS[session_id] = history[-WHITEBOARD_MAX_INSIGHTS:]
+            elif not history:
+                history.append(insight)
+            await broadcast(
+                build_event(
+                    "whiteboard_insight",
+                    session_id,
+                    WhiteboardInsightPayload(status="ready", **insight),
+                ).model_dump()
+            )
+        except Exception as exc:
+            await broadcast(
+                build_event(
+                    "whiteboard_insight",
+                    session_id,
+                    WhiteboardInsightPayload(
+                        status="error",
+                        error=str(exc),
+                        captureTimestamp=int(time.time() * 1000),
+                    ),
+                ).model_dump()
+            )
+        finally:
+            SESSION_WHITEBOARD_TASKS.pop(session_id, None)
+
+    SESSION_WHITEBOARD_TASKS[session_id] = asyncio.create_task(run_analysis())
 
 
 def record_transcript_text(state: SessionState, session_id: str, text: str) -> None:
@@ -912,26 +1059,32 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
         pending_finalize = SESSION_FINALIZE_TASKS.pop(session_id, None)
         if pending_finalize and pending_finalize is not asyncio.current_task():
             pending_finalize.cancel()
+        await await_pending_whiteboard_analysis(session_id)
         final_text: str | None = None
         transcript_text = SESSION_TRANSCRIPT_BUFFER.get(session_id, "").strip()
         student_notes_text = state.student_notes_text.strip()
+        whiteboard_context = build_whiteboard_context(SESSION_WHITEBOARD_INSIGHTS.get(session_id, []))
         if not transcript_text:
             transcript_text = state.transcript_full_buffer.strip()
 
-        if transcript_text or student_notes_text:
+        if transcript_text or student_notes_text or whiteboard_context:
             final_input = transcript_text[-MAX_FINAL_TRANSCRIPT_CHARS:]
             final_student_notes = student_notes_text[:MAX_STUDENT_NOTES_CHARS]
             if os.getenv("NOTES_MODE", "llm").lower() == "llm":
                 try:
                     final_text = await asyncio.to_thread(
-                        generate_final_notes_text, final_input, final_student_notes
+                        generate_final_notes_text, final_input, final_student_notes, whiteboard_context
                     )
                 except Exception as exc:
                     if os.getenv("DEBUG_LLM", "0") == "1":
                         print(f"[LLM] final_notes_failed={exc}")
-                    final_text = build_final_fallback_notes(final_input, final_student_notes)
+                    final_text = build_final_fallback_notes(
+                        final_input, final_student_notes, whiteboard_context
+                    )
             else:
-                final_text = build_final_fallback_notes(final_input, final_student_notes)
+                final_text = build_final_fallback_notes(
+                    final_input, final_student_notes, whiteboard_context
+                )
 
         if final_text:
             state.final_notes_text = final_text
@@ -962,6 +1115,12 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
         SESSION_LIVE_PENDING.pop(session_id, None)
         SESSION_LIVE_STATE.pop(session_id, None)
         SESSION_LIVE_HISTORY.pop(session_id, None)
+        SESSION_WHITEBOARD_INSIGHTS.pop(session_id, None)
+        SESSION_WHITEBOARD_SIGNATURES.pop(session_id, None)
+        SESSION_WHITEBOARD_LAST_ANALYSIS.pop(session_id, None)
+        task = SESSION_WHITEBOARD_TASKS.pop(session_id, None)
+        if task and not task.done() and task is not asyncio.current_task():
+            task.cancel()
         SESSION_RUNNING.pop(session_id, None)
 
     async def live_notes_loop() -> None:
@@ -1031,6 +1190,7 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                     SESSION_LIVE_PENDING[session_id] = ""
                     SESSION_LIVE_STATE[session_id] = {}
                     SESSION_LIVE_HISTORY[session_id] = []
+                    SESSION_WHITEBOARD_INSIGHTS.setdefault(session_id, [])
                 state.live_notes_history = SESSION_LIVE_HISTORY.setdefault(session_id, [])
 
                 capture_source = payload.get("captureSource")
@@ -1092,6 +1252,15 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                 await broadcast(
                     build_event("status", session_id, {"message": "session started"}).model_dump()
                 )
+                latest_whiteboard = SESSION_WHITEBOARD_INSIGHTS.get(session_id, [])
+                if latest_whiteboard:
+                    await safe_send(
+                        build_event(
+                            "whiteboard_insight",
+                            session_id,
+                            WhiteboardInsightPayload(status="ready", **latest_whiteboard[-1]),
+                        ).model_dump()
+                    )
                 continue
 
             if message_type == "stop_session":
@@ -1201,6 +1370,13 @@ async def session_ws(websocket: WebSocket, session_id: str) -> None:
                                 "height": height,
                             },
                         ).model_dump()
+                    )
+                    await maybe_schedule_whiteboard_analysis(
+                        session_id=session_id,
+                        state=state,
+                        image_b64=image,
+                        mime_type=mime_type,
+                        broadcast=broadcast,
                     )
                 continue
 

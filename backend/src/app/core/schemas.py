@@ -10,6 +10,7 @@ EventType = Literal[
     "live_notes_delta",
     "final_notes",
     "camera_preview",
+    "whiteboard_insight",
     "error",
 ]
 
@@ -73,3 +74,16 @@ class NotesState(BaseModel):
     questions: List[str] = Field(default_factory=list)
     definitions: List[DefinitionItem] = Field(default_factory=list)
     steps: List[str] = Field(default_factory=list)
+
+
+class WhiteboardInsightPayload(BaseModel):
+    status: Literal["analyzing", "ready", "error"] = "ready"
+    title: str | None = None
+    subjectGuess: str | None = None
+    summary: str | None = None
+    equationsLatex: List[str] = Field(default_factory=list)
+    steps: List[str] = Field(default_factory=list)
+    diagramHints: List[str] = Field(default_factory=list)
+    uncertainReadings: List[str] = Field(default_factory=list)
+    captureTimestamp: int | None = None
+    error: str | None = None

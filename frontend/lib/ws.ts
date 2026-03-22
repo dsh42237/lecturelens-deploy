@@ -7,7 +7,8 @@ import {
   SimulatorProgressPayload,
   StatusPayload,
   TranscriptFinalPayload,
-  TranscriptPartialPayload
+  TranscriptPartialPayload,
+  WhiteboardInsightPayload,
 } from "./types";
 
 function resolveWsBase(): string {
@@ -31,6 +32,7 @@ export interface WSHandlers {
   onLiveNotesDelta?: (event: EventEnvelope<LiveNotesPayload>) => void;
   onFinalNotes?: (event: EventEnvelope<FinalNotesPayload>) => void;
   onCameraPreview?: (event: EventEnvelope<CameraPreviewPayload>) => void;
+  onWhiteboardInsight?: (event: EventEnvelope<WhiteboardInsightPayload>) => void;
   onErrorEvent?: (event: EventEnvelope<{ message: string }>) => void;
   onOpen?: () => void;
   onClose?: (event: CloseEvent) => void;
@@ -87,6 +89,9 @@ export function connectSession(sessionId: string, handlers: WSHandlers, options:
           break;
         case "camera_preview":
           handlers.onCameraPreview?.(parsed as EventEnvelope<CameraPreviewPayload>);
+          break;
+        case "whiteboard_insight":
+          handlers.onWhiteboardInsight?.(parsed as EventEnvelope<WhiteboardInsightPayload>);
           break;
         case "error":
           handlers.onErrorEvent?.(parsed as EventEnvelope<{ message: string }>);

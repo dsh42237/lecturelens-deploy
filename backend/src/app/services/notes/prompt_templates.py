@@ -141,8 +141,11 @@ def build_live_prompt(transcript: str, prev_state: dict[str, Any] | None = None)
     )
 
 
-def build_final_prompt(transcript: str, student_notes: str = "") -> str:
+def build_final_prompt(
+    transcript: str, student_notes: str = "", whiteboard_context: str = ""
+) -> str:
     student_notes_block = student_notes.strip() or "(none)"
+    whiteboard_block = whiteboard_context.strip() or "(none)"
     return (
         "You are a lecture notes editor. Produce a compact, high-signal study sheet in markdown.\n"
         "Do NOT copy sentences verbatim; paraphrase and correct transcript errors.\n"
@@ -150,6 +153,8 @@ def build_final_prompt(transcript: str, student_notes: str = "") -> str:
         "Ignore filler/anchors (greetings, names, thanks, sign-offs, housekeeping).\n\n"
         "If STUDENT_NOTES are provided, treat them as the student's own priorities, confusions, and reminders.\n"
         "Use them to improve emphasis and examples, but do not elevate claims that contradict the transcript.\n"
+        "If WHITEBOARD_CONTEXT is provided, use it to recover equations, solve steps, board structure, and diagrams that may be weak in the transcript.\n"
+        "Prefer consistent mathematical notation when the board context clearly supports it.\n"
         "Prefer a concise study summary over a long comprehensive rewrite.\n\n"
         "Output MUST be markdown only.\n"
         "Structure:\n"
@@ -175,5 +180,6 @@ def build_final_prompt(transcript: str, student_notes: str = "") -> str:
         "- Aim for roughly 280-520 words total unless the lecture is unusually dense\n"
         "- Student notes should influence emphasis, not add a long separate dump\n\n"
         f"STUDENT_NOTES:\n{student_notes_block}\n\n"
+        f"WHITEBOARD_CONTEXT:\n{whiteboard_block}\n\n"
         f"TRANSCRIPT:\n{transcript}\n"
     )

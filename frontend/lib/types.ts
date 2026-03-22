@@ -7,6 +7,7 @@ export type EventType =
   | "live_notes_delta"
   | "final_notes"
   | "camera_preview"
+  | "whiteboard_insight"
   | "audio_segment"
   | "audio_frame"
   | "camera_frame"
@@ -89,6 +90,19 @@ export interface CameraPreviewPayload {
   mimeType: string;
   width: number;
   height: number;
+}
+
+export interface WhiteboardInsightPayload {
+  status: "analyzing" | "ready" | "error";
+  title?: string | null;
+  subjectGuess?: string | null;
+  summary?: string | null;
+  equationsLatex?: string[];
+  steps?: string[];
+  diagramHints?: string[];
+  uncertainReadings?: string[];
+  captureTimestamp?: number | null;
+  error?: string | null;
 }
 
 export interface AudioSegmentPayload {
