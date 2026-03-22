@@ -229,12 +229,30 @@ function SessionsPageContent() {
                         Delete session
                       </button>
                     </div>
-                    {session.live_notes_history && session.live_notes_history.length > 0 && (
-                      <details className="session-notes-details">
-                        <summary>
-                          Live notes timeline ({session.live_notes_history.length})
-                        </summary>
-                        <div className="session-live-notes-rail">
+
+                    <div className="course-history-session-layout">
+                      <div className="course-history-session-main">
+                        {session.final_notes_text && (
+                          <div className="context-inline session-notes-render">
+                            <MarkdownNotes content={session.final_notes_text} />
+                          </div>
+                        )}
+                        {typeof session.final_notes_versions_count === "number" &&
+                          session.final_notes_versions_count > 0 && (
+                            <div className="muted">
+                              Previous final-note versions saved: {session.final_notes_versions_count}
+                            </div>
+                          )}
+                        {session.student_notes_text && (
+                          <details className="session-notes-details">
+                            <summary>Student notes</summary>
+                            <pre className="context-inline">{session.student_notes_text}</pre>
+                          </details>
+                        )}
+                      </div>
+
+                      {session.live_notes_history && session.live_notes_history.length > 0 && (
+                        <aside className="course-history-session-rail">
                           <SavedLiveNotesRail
                             entries={session.live_notes_history.map((entry, idx) => ({
                               id: `${session.id}-live-${entry.timestamp}-${idx}`,
@@ -244,26 +262,9 @@ function SessionsPageContent() {
                             title="Live Notes"
                             compact
                           />
-                        </div>
-                      </details>
-                    )}
-                    {session.final_notes_text && (
-                      <div className="context-inline session-notes-render">
-                        <MarkdownNotes content={session.final_notes_text} />
-                      </div>
-                    )}
-                    {typeof session.final_notes_versions_count === "number" &&
-                      session.final_notes_versions_count > 0 && (
-                        <div className="muted">
-                          Previous final-note versions saved: {session.final_notes_versions_count}
-                        </div>
+                        </aside>
                       )}
-                    {session.student_notes_text && (
-                      <details className="session-notes-details">
-                        <summary>Student notes</summary>
-                        <pre className="context-inline">{session.student_notes_text}</pre>
-                      </details>
-                    )}
+                    </div>
                   </div>
                 ))}
               </div>

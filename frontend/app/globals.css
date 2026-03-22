@@ -1336,6 +1336,26 @@ main {
   margin-top: 10px;
 }
 
+.course-history-session-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+
+.course-history-session-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.course-history-session-rail {
+  min-width: 0;
+  position: sticky;
+  top: 20px;
+  align-self: start;
+}
+
 .course-history-timeline {
   display: grid;
   gap: 10px;
@@ -2833,6 +2853,14 @@ main {
   .course-history-item summary {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .course-history-session-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .course-history-session-rail {
+    position: static;
   }
 
   .session-document-actions {
