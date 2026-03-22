@@ -1369,6 +1369,32 @@ main {
   gap: 24px;
 }
 
+.session-document-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 22px;
+  align-items: start;
+}
+
+.session-document-main {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.session-document-rail {
+  position: sticky;
+  top: 20px;
+  min-width: 0;
+}
+
+.session-document-side-block {
+  padding: 20px 22px;
+  border-radius: 22px;
+  border: 1px solid #dbe4f0;
+  background: #ffffff;
+}
+
 .session-document-hero {
   display: grid;
   gap: 18px;
@@ -1526,6 +1552,26 @@ main {
   border-top: 1px solid #e2e8f0;
   color: #64748b;
   font-size: 12px;
+}
+
+.saved-live-notes-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.saved-live-notes-feed {
+  min-height: 420px;
+}
+
+.saved-live-notes-rail--compact .panel-heading h2 {
+  font-size: 16px;
+}
+
+.saved-live-notes-rail--compact .saved-live-notes-feed {
+  min-height: 0;
+  max-height: 460px;
 }
 
 .session-print-header,
@@ -2072,15 +2118,19 @@ main {
 
 .session-notes-details {
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #f8fafc;
-  padding: 8px 10px;
+  border-radius: 18px;
+  background: #ffffff;
+  padding: 10px 12px 12px;
 }
 
 .session-notes-details summary {
   cursor: pointer;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.session-live-notes-rail {
+  margin-top: 12px;
 }
 
 .session-live-notes {
@@ -2789,6 +2839,14 @@ main {
     justify-content: flex-start;
   }
 
+  .session-document-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .session-document-rail {
+    position: static;
+  }
+
   .session-document-hero {
     padding: 22px 20px;
   }
@@ -2943,6 +3001,11 @@ main {
   .course-history-timeline-item {
     box-shadow: none;
     break-inside: avoid;
+  }
+
+  .session-document-rail,
+  .saved-live-notes-rail {
+    display: none !important;
   }
 
   .session-document-hero {

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "../../components/AppLayout";
 import MarkdownNotes from "../../components/MarkdownNotes";
+import SavedLiveNotesRail from "../../components/SavedLiveNotesRail";
 import { getMe, listSessions, deleteSession, regenerateSessionFinalNotes } from "../../lib/api";
 
 interface SessionItem {
@@ -233,24 +234,16 @@ function SessionsPageContent() {
                         <summary>
                           Live notes timeline ({session.live_notes_history.length})
                         </summary>
-                        <div className="session-live-notes">
-                          {session.live_notes_history.map((entry, idx) => (
-                            <div key={`${session.id}-live-${entry.timestamp}-${idx}`} className="session-live-item">
-                              <div className="muted">
-                                {new Date(entry.timestamp).toLocaleString()}
-                              </div>
-                              <div>
-                                <strong>{entry.notes?.nowTopic ?? "Topic update"}</strong>
-                              </div>
-                              {entry.notes?.keyPoints && entry.notes.keyPoints.length > 0 && (
-                                <ul>
-                                  {entry.notes.keyPoints.slice(0, 4).map((point, pointIdx) => (
-                                    <li key={`${session.id}-point-${idx}-${pointIdx}`}>{point}</li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          ))}
+                        <div className="session-live-notes-rail">
+                          <SavedLiveNotesRail
+                            entries={session.live_notes_history.map((entry, idx) => ({
+                              id: `${session.id}-live-${entry.timestamp}-${idx}`,
+                              ts: entry.timestamp,
+                              notes: entry.notes,
+                            }))}
+                            title="Live Notes"
+                            compact
+                          />
                         </div>
                       </details>
                     )}
