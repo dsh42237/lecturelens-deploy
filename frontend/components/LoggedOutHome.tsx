@@ -95,7 +95,7 @@ export default function LoggedOutHome() {
         <header className="landing-header">
           <div className="landing-header-brand">
             <Image
-              src="/Logo.jpg"
+              src="/Logo.JPG"
               alt="LiveLecture logo"
               width={42}
               height={42}
@@ -160,7 +160,7 @@ export default function LoggedOutHome() {
               <div className="landing-preview">
                 <div className="landing-logo-frame">
                   <Image
-                    src="/Logo.jpg"
+                    src="/Logo.JPG"
                     alt="LiveLecture logo"
                     width={220}
                     height={220}

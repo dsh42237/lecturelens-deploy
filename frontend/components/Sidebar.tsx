@@ -18,7 +18,7 @@ export default function Sidebar() {
     <aside className="sidebar">
       <div className="sidebar-brand-wrap">
         <Image
-          src="/Logo.jpg"
+          src="/Logo.JPG"
           alt="LiveLecture logo"
           width={40}
           height={40}
