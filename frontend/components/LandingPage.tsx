@@ -73,7 +73,7 @@ export default function LandingPage() {
         {/* Right — Logo */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Image
-            src="/livelecture-logo.svg"
+            src="/Logo.jpg"
             alt="LiveLecture"
             width={340}
             height={340}

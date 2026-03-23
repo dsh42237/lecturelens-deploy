@@ -34,11 +34,11 @@ export default function SessionDocument({
       {printMode && (
         <>
           <div className="session-print-watermark" aria-hidden="true">
-            <img src="/livelecture-logo.svg" alt="" />
+            <img src="/Logo.jpg" alt="" />
           </div>
           <div className="session-print-header" aria-hidden="true">
             <div className="session-print-header-brand">
-              <img src="/livelecture-logo.svg" alt="" className="session-print-logo" />
+              <img src="/Logo.jpg" alt="" className="session-print-logo" />
               <div>
                 <strong>LiveLecture</strong>
                 <span>{session.course_code ?? "Lecture session"}</span>
@@ -60,7 +60,7 @@ export default function SessionDocument({
       <header className="session-document-hero">
         <div className="session-document-brand-row">
           <span className="session-document-brand">
-            <img src="/livelecture-logo.svg" alt="" className="session-document-logo" />
+            <img src="/Logo.jpg" alt="" className="session-document-logo" />
             LiveLecture Notes
           </span>
           <span className="session-document-session-id">Session {session.id.slice(0, 8)}</span>

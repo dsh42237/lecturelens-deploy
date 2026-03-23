@@ -501,8 +501,8 @@ export async function exportSessionPdf(
   const [{ jsPDF }] = await Promise.all([import("jspdf")]);
 
   const [logoDataUrl, watermarkDataUrl] = await Promise.all([
-    getImageDataUrl("/livelecture-logo.svg", 1),
-    getImageDataUrl("/livelecture-logo.svg", 0.05)
+    getImageDataUrl("/Logo.jpg", 1),
+    getImageDataUrl("/Logo.jpg", 0.05)
   ]);
 
   const doc = new jsPDF({
