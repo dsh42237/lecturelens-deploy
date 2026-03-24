@@ -66,3 +66,18 @@ class SessionOut(BaseModel):
     student_notes_text: Optional[str] = None
     live_notes_history: list[dict[str, Any]] = Field(default_factory=list)
     final_notes_versions_count: int = 0
+
+
+class FlashcardOut(BaseModel):
+    front: str
+    back: str
+
+
+class FlashcardGenerateIn(BaseModel):
+    request: Optional[str] = None
+    count: int = Field(default=8, ge=3, le=20)
+
+
+class SessionFlashcardsOut(BaseModel):
+    session_id: str
+    flashcards: list[FlashcardOut] = Field(default_factory=list)

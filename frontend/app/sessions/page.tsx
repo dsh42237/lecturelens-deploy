@@ -238,6 +238,13 @@ function SessionsPageContent() {
                       >
                         View Notes
                       </a>
+                      <a
+                        className="ghost-btn"
+                        href={`/flashcards?session=${encodeURIComponent(session.id)}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        Flashcards
+                      </a>
                       <button
                         type="button"
                         className="ghost-btn"

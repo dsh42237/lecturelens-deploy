@@ -67,6 +67,25 @@ SCHEMA: dict[str, Any] = {
     "required": ["topics", "keyTerms", "questions", "definitions", "steps"],
 }
 
+FLASHCARDS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "flashcards": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "front": {"type": "string"},
+                    "back": {"type": "string"},
+                    "source_anchor": {"type": "string"},
+                },
+                "required": ["front", "back", "source_anchor"],
+            },
+        }
+    },
+    "required": ["flashcards"],
+}
+
 
 def build_prompt(
     transcript: str,
@@ -182,4 +201,41 @@ def build_final_prompt(
         f"STUDENT_NOTES:\n{student_notes_block}\n\n"
         f"WHITEBOARD_CONTEXT:\n{whiteboard_block}\n\n"
         f"TRANSCRIPT:\n{transcript}\n"
+    )
+
+
+def build_flashcards_prompt(
+    source_text: str,
+    *,
+    student_notes: str = "",
+    focus_request: str = "",
+    count: int = 8,
+) -> str:
+    schema_json = json.dumps(FLASHCARDS_SCHEMA, indent=2)
+    student_notes_block = student_notes.strip() or "(none)"
+    request_block = focus_request.strip() or "(none)"
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "You are creating study flashcards from one lecture session.\n"
+        "Return active-recall flashcards a student can actually practice with.\n"
+        "Prefer concept, definition, mechanism, comparison, equation, and cause/effect cards.\n"
+        "Avoid trivia, duplicate cards, vague prompts, and cards whose answer is just one copied sentence.\n"
+        "When math or symbolic relationships matter, keep them compact and readable.\n\n"
+        "Constraints:\n"
+        f"- Return exactly {count} flashcards when the source supports it; otherwise return as many strong cards as possible.\n"
+        "- Output STRICT JSON only.\n"
+        "- Use ONLY the provided session source. Do not add outside facts, textbook context, or likely background knowledge.\n"
+        "- Each front should be a clear question or recall cue.\n"
+        "- Each back should be 1-3 short lines or bullets worth of content in plain text.\n"
+        "- Every card must include source_anchor: a short exact phrase copied from SESSION_SOURCE that supports the card.\n"
+        "- If a card cannot be grounded with an exact source_anchor from SESSION_SOURCE, do not include that card.\n"
+        "- Keep fronts concise.\n"
+        "- Keep backs factual and high-signal.\n"
+        "- If STUDENT_FOCUS_REQUEST is provided, bias the deck toward that request.\n"
+        "- If STUDENT_NOTES reveal confusion or priorities, use them to shape emphasis.\n"
+        "- Do not mention missing information or your own uncertainty unless essential.\n\n"
+        f"SCHEMA:\n{schema_json}\n\n"
+        f"STUDENT_FOCUS_REQUEST:\n{request_block}\n\n"
+        f"STUDENT_NOTES:\n{student_notes_block}\n\n"
+        f"SESSION_SOURCE:\n{source_text}\n"
     )

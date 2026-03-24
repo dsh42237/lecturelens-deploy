@@ -8,7 +8,13 @@ import urllib.error
 from typing import Any
 
 from app.core.schemas import NotesDeltaPayload
-from app.services.notes.prompt_templates import SCHEMA, build_final_prompt, build_live_prompt, build_prompt
+from app.services.notes.prompt_templates import (
+    SCHEMA,
+    build_final_prompt,
+    build_flashcards_prompt,
+    build_live_prompt,
+    build_prompt,
+)
 
 
 def _extract_fenced_json(text: str) -> str | None:
@@ -606,3 +612,69 @@ def generate_final_notes_text(
         max_retries=max_retries,
     )
     return _cleanup_final_notes_text(text_response)
+
+
+def _normalize_flashcard_text(text: str) -> str:
+    cleaned = text.replace("\r", "\n").strip()
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned
+
+
+def _normalize_anchor_match_text(text: str) -> str:
+    normalized = text.casefold()
+    normalized = re.sub(r"\s+", " ", normalized)
+    return normalized.strip()
+
+
+def _anchor_exists_in_source(anchor: str, source_text: str) -> bool:
+    normalized_anchor = _normalize_anchor_match_text(anchor)
+    normalized_source = _normalize_anchor_match_text(source_text)
+    if not normalized_anchor or not normalized_source:
+        return False
+    return normalized_anchor in normalized_source
+
+
+def generate_flashcards(
+    source_text: str,
+    *,
+    student_notes: str = "",
+    focus_request: str = "",
+    count: int = 8,
+) -> list[dict[str, str]]:
+    prepared_source = _prepare_final_transcript(source_text, max_chars=12000)
+    prompt = build_flashcards_prompt(
+        prepared_source,
+        student_notes=student_notes,
+        focus_request=focus_request,
+        count=count,
+    )
+    text_response = _request_llm_text(prompt, response_format={"type": "json_object"})
+    data = _extract_json_payload(text_response, {"flashcards"})
+    items = data.get("flashcards")
+    if not isinstance(items, list):
+        raise ValueError("Flashcards payload missing flashcards list")
+
+    cleaned: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        front = _normalize_flashcard_text(str(item.get("front", "")))
+        back = _normalize_flashcard_text(str(item.get("back", "")))
+        source_anchor = _normalize_flashcard_text(str(item.get("source_anchor", "")))
+        if not front or not back or not source_anchor:
+            continue
+        if not _anchor_exists_in_source(source_anchor, prepared_source):
+            continue
+        key = (front.casefold(), back.casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append({"front": front, "back": back})
+        if len(cleaned) >= count:
+            break
+
+    if not cleaned:
+        raise ValueError("LLM returned no grounded flashcards for this session")
+
+    return cleaned

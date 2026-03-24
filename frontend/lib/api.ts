@@ -88,6 +88,16 @@ export interface SessionInfo {
   final_notes_versions_count?: number;
 }
 
+export interface FlashcardInfo {
+  front: string;
+  back: string;
+}
+
+export interface SessionFlashcardsInfo {
+  session_id: string;
+  flashcards: FlashcardInfo[];
+}
+
 export async function register(email: string, password: string): Promise<UserInfo> {
   return request("/auth/register", {
     method: "POST",
@@ -192,4 +202,14 @@ export async function deleteSession(id: string): Promise<{ ok: boolean }> {
 
 export async function regenerateSessionFinalNotes(id: string): Promise<SessionInfo> {
   return request(`/sessions/${id}/regenerate-final-notes`, { method: "POST" });
+}
+
+export async function generateSessionFlashcards(
+  id: string,
+  payload: { request?: string; count?: number } = {}
+): Promise<SessionFlashcardsInfo> {
+  return request(`/sessions/${id}/generate-flashcards`, {
+    method: "POST",
+    body: JSON.stringify(payload)
+  });
 }

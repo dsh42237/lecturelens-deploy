@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user
 from app.core.db import get_db
-from app.core.user_schemas import SessionOut
-from app.services.notes.notes_llm_service import generate_final_notes_text
+from app.core.user_schemas import FlashcardGenerateIn, SessionFlashcardsOut, SessionOut
+from app.services.notes.notes_llm_service import generate_final_notes_text, generate_flashcards
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -85,6 +85,32 @@ def build_regeneration_source(
         return student_notes
 
     return ""
+
+
+def build_flashcards_source(
+    final_notes_text: str | None,
+    transcript_text: str | None,
+    live_notes_history: list[dict[str, Any]],
+    student_notes_text: str | None,
+) -> str:
+    blocks: list[str] = []
+    final_notes = (final_notes_text or "").strip()
+    if final_notes:
+        blocks.append(f"FINAL_NOTES:\n{final_notes}")
+
+    regenerated_source = build_regeneration_source(
+        transcript_text,
+        live_notes_history,
+        student_notes_text,
+    ).strip()
+    if regenerated_source:
+        blocks.append(f"SESSION_CONTENT:\n{regenerated_source}")
+
+    student_notes = (student_notes_text or "").strip()
+    if student_notes:
+        blocks.append(f"STUDENT_NOTES:\n{student_notes}")
+
+    return "\n\n".join(blocks).strip()
 
 
 def build_session_out(row: dict[str, Any]) -> SessionOut:
@@ -203,6 +229,51 @@ def regenerate_final_notes(session_id: str, user=Depends(get_current_user)) -> S
     if not updated_row:
         raise HTTPException(status_code=404, detail="Session not found after regeneration")
     return build_session_out(updated_row)
+
+
+@router.post("/{session_id}/generate-flashcards", response_model=SessionFlashcardsOut)
+def generate_session_flashcards(
+    session_id: str,
+    payload: FlashcardGenerateIn,
+    user=Depends(get_current_user),
+) -> SessionFlashcardsOut:
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT s.id, s.final_notes_text, s.student_notes_text, s.live_notes_history, s.transcript_text "
+            "FROM sessions s "
+            "WHERE s.user_id = %s AND s.id = %s",
+            (user["id"], session_id),
+        )
+        row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    live_history = parse_live_notes_history(row_value(row, "live_notes_history"))
+    source_text = build_flashcards_source(
+        row_value(row, "final_notes_text"),
+        row_value(row, "transcript_text"),
+        live_history,
+        row_value(row, "student_notes_text"),
+    )
+    if not source_text:
+        raise HTTPException(
+            status_code=400,
+            detail="No stored notes or transcript are available to generate flashcards for this session.",
+        )
+
+    try:
+        flashcards = generate_flashcards(
+            source_text,
+            student_notes=row_value(row, "student_notes_text") or "",
+            focus_request=payload.request or "",
+            count=payload.count,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return SessionFlashcardsOut(session_id=session_id, flashcards=flashcards)
 
 
 @router.delete("/{session_id}")

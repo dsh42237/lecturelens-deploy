@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 const navItems = [
   { href: "/live", label: "Live Session" },
+  { href: "/flashcards", label: "Flashcards" },
   { href: "/profile", label: "Profile" },
   { href: "/semesters", label: "Semesters & Courses" },
   { href: "/sessions", label: "Session History" }
